@@ -637,6 +637,45 @@ Semantic Resolution 可以作为 PolicyProvider 内部的标准步骤，不必�
 
 ## 9. 对外状态信封与最小通信
 
+### 9.1 v2.1 状态收缩决策（待实现）
+
+v2 保留 Proposal、Decision、Receipt、Evidence、Assertion 和 Task State 的责任边界，
+但不得让同一“未执行”或“执行失败”事实在多个对象中重复表达。以下是 v2.1 的
+目标协议；当前实现的兼容字段应按迁移计划删除，而不能被误认为已经符合本节。
+
+核心对象各自只描述其领域事实：
+
+```text
+PolicyDecision   allow / deny / confirm / stale / invalid
+ExecutionReceipt delivered / failed / unknown
+AssertionResult  passed / failed / unknown / conflict
+TaskState        running / needs-confirmation / retrying / completed / failed
+```
+
+`retrying` 只在任务仍可自动恢复时出现；实现也可以用 `running` 加 retry budget
+表示这一状态。`needs-evidence` 与 `needs-evaluation` 是运行时 pipeline 的内部
+阶段，不是对外 TaskState。显式 facade 操作可以返回 `pending` 表示仍有工作，
+但不得把 pipeline 阶段伪装成新的领域结果对象。
+
+尤其必须满足：
+
+```text
+PolicyDecision != ExecutionReceipt
+ExecutionReceipt != AssertionResult
+ExecutionReceipt.delivered != TaskState.completed
+未调用 Executor => 不存在 ExecutionReceipt
+```
+
+`deny`、`confirm`、`invalid` 或 Guard 重检得到 `stale` 时，调用方读取
+`PolicyDecision.reason_code` 即可知道动作没有执行。Guard 重检失败必须追加一个
+`PolicyDecision(status=stale)`，而不是制造 `ExecutionReceipt(rejected)`。只有
+实际调用 Executor 后，才能产生 ExecutionReceipt。
+
+所有事实对象使用同一份稳定 `ReasonCode`，例如 `TARGET_CHANGED`、
+`ACTION_UNSUPPORTED`、`DEVICE_UNAVAILABLE`、`EXECUTOR_FAILED` 和
+`POSTCONDITION_FAILED`。Attribution 不得另建一套错误码；它只补充 `stage`、
+`owner` 与 `event_kind`。
+
 统一信封只用于 MCP 对外 facade，不用于内核组件之间通信。正常响应只返回状态和核心对象引用；详细 effect、evidence、attribution 和 metrics 按引用查询：
 
 ```json
@@ -651,49 +690,39 @@ Semantic Resolution 可以作为 PolicyProvider 内部的标准步骤，不必�
 }
 ```
 
-只有调用方明确请求诊断时，才通过 `object_ref` 或 `debug_ref` 取得完整对象。组件之间直接传 typed object 或引用，禁止套用包含未使用字段的大信封。
+只有调用方明确请求诊断时，才通过 `object_ref` 或 `debug_ref` 取得完整对象。默认
+envelope 不返回 `attribution_refs`；Attribution 只在 trace、审计、benchmark 或
+显式 diagnostic 请求中按引用取得。组件之间直接传 typed object 或引用，禁止套用
+包含未使用字段的大信封。
 
 建议状态：
 
 | 状态 | 含义 |
 | --- | --- |
 | `ok` | 当前操作完整成功 |
-| `needs-execution` | 有安全可执行提案，尚未产生实际效果 |
+| `pending` | 显式操作已产生对象，但任务仍有后续工作 |
 | `needs-confirmation` | 动作风险超过自动执行阈值 |
-| `needs-evidence` | 动作已执行，但尚未取得足够的任务结果证据 |
-| `needs-evaluation` | 已取得证据，但断言尚未完成评价 |
-| `partial` | 部分动作或部分验收条件成功 |
-| `refused` | MCP 确定性安全校验拒绝 |
-| `failed` | 执行或确定性验收失败 |
+| `failed` | Executor、不可恢复断言或任务预算导致任务失败 |
 | `completed` | 所有任务验收条件通过 |
 
-Qwen 返回 `DONE` 只能触发 Evidence Collection，不能直接产生 `completed`。只有 Task State Reducer 在所有必要断言通过后才能产生 `completed`。迁移期可将旧状态 `needs-verification` 映射为 `needs-evidence`，但新协议不再把验证表示为单一 Verifier 调用。
+`ok` 只表示当前 facade 操作已经完成，不表示任务成功。Qwen 返回 `DONE` 只能触发
+Evidence Collection，不能直接产生 `completed`。只有 Task State Reducer 在所有必要
+断言通过后才能产生 `completed`。
 
-可预期错误应包含稳定字段：
+可预期错误应引用发生失败对象的同一份稳定 ReasonCode：
 
 ```json
 {
-  "error": {
-    "code": "ENVIRONMENT_TARGET_CHANGED",
-    "message": "The top-level target changed before execution",
-    "retry": true,
-    "required_action": "capture-new-frame"
-  },
-  "attributions": [
-    {
-      "event_kind": "safe-refusal",
-      "stage": "environment",
-      "owner": "environment",
-      "code": "ENVIRONMENT_TARGET_CHANGED",
-      "evidence_status": "confirmed",
-      "primary": false,
-      "summary": "Target window changed before execution"
-    }
-  ]
+  "status": "stale",
+  "reason_code": "TARGET_CHANGED",
+  "retry": true,
+  "required_action": "capture-new-frame"
 }
 ```
 
-`error` 描述当前操作为何没有完成，`attributions` 描述事件性质和责任归因；调用方不得从 `error` 的存在直接推导组件失败。例如上例是 MCP 正确发现环境变化后的安全拒绝，不计入 MCP 错误率。
+上例是 PolicyDecision，不产生 ExecutionReceipt。trace 或审计可以另外记录
+`safe-refusal / environment / environment / TARGET_CHANGED` Attribution；调用方
+不得从 ReasonCode 的存在直接推导组件失败。
 
 ## 10. ExecutionReceipt：执行器实际做了什么
 
@@ -720,7 +749,11 @@ Qwen 返回 `DONE` 只能触发 Evidence Collection，不能直接产生 `comple
 }
 ```
 
-状态固定为 `delivered`、`rejected`、`failed` 或 `unknown`。`delivered` 只能证明执行后端接受并注入了动作，不能证明应用收到动作或产生了模型预期的业务效果。`window_opened`、文本变化等结果必须由 Evidence Provider 另行采集，不能写进 ExecutionReceipt 冒充执行事实。
+状态固定为 `delivered`、`failed` 或 `unknown`。`rejected` 属于 PolicyDecision：
+Action Gate 拒绝时 Executor 不得被调用，因此不能产生 ExecutionReceipt。
+`delivered` 只能证明执行后端接受并注入了动作，不能证明应用收到动作或产生了模型
+预期的业务效果。`window_opened`、文本变化等结果必须由 Evidence Provider 另行采集，
+不能写进 ExecutionReceipt 冒充执行事实。
 
 尤其必须保持：
 
@@ -872,10 +905,11 @@ Task State Reducer 根据必要断言、运行限制和当前任务状态执行�
 
 ```text
 所有必要断言 passed                         → completed
-可恢复断言 failed，且仍有重试预算            → retry
-证据 unknown/conflict，且允许继续收集         → needs-evidence
+动作需要人工确认                            → needs-confirmation
+可恢复断言 failed，且仍有重试预算            → retrying
+证据 unknown/conflict，且允许继续收集         → running
 不可恢复断言 failed 或预算耗尽                → failed
-仍有后续步骤                                 → continue
+仍有后续步骤                                 → running
 ```
 
 Qwen 的 `DONE`、动作成功和单个断言通过都不能直接修改任务为 `completed`。
@@ -1008,6 +1042,11 @@ AssertionEvaluation:
 ```
 
 `stage`、`owner` 和 `code` 必须分开，不能使用 `model-perception` 之类同时编码阶段和责任人的单一字段。这样可以分别统计某类阶段错误和某个组件的责任比例。
+
+Attribution 的 `code` 必须复用产生该事件的 PolicyDecision、ExecutionReceipt 或
+AssertionResult 的 ReasonCode；不得把 `TARGET_CHANGED` 再扩写成
+`ENVIRONMENT_TARGET_CHANGED`，或为 benchmark 另设平行错误码表。归因维度只通过
+`stage`、`owner` 与 `event_kind` 表达。
 
 ### 12.4 稳定枚举
 
@@ -1608,8 +1647,9 @@ propose → execute → verify
 ### Phase 3：拆出可替换组件
 
 - Qwen-CUA 实现 `ProposalProvider`；
-- PyAutoGUI 实现 `InputExecutor`；
-- Treeland/Deepin desktop adapter 提供基于 `dde-am` 的 `ApplicationLauncher`；
+- Core 只依赖一个 `ActionExecutor`；
+- Treeland/Deepin backend 在内部将输入动作交给 PyAutoGUI，将应用启动交给
+  `dde-am`，但这些实现细节不进入 Core；
 - Deepin 快捷键目录实现 `PlatformCapabilityProvider`；
 - 平台快捷键和应用启动也生成 Proposal，不得旁路事务；
 - 核心代码不得 import 具体 adapter。
@@ -1638,18 +1678,140 @@ v2 至少满足：
 7. 主控不会因为桌面 role 或合成器特有容器名自动拒绝桌面图标点击。
 8. 每个 ActionProposal 只包含一个动作，并用 `based_on_snapshot` 记录 provenance，同时声明坐标空间。
 9. 新 Snapshot 出现后必须重检 ProposalGuard；只有动作依赖条件失效才拒绝，不能因 Snapshot 整体不同自动 stale。
-10. Qwen 点击、键盘操作、平台快捷键和应用启动都经过同一 PolicyDecision、ExecutionReceipt 和 AssertionResult 流程。
+10. Qwen 点击、键盘操作、平台快捷键和应用启动都经过同一 Proposal 和
+    PolicyDecision 流程；只有实际调用 ActionExecutor 后才产生 ExecutionReceipt。
 11. ExecutionReceipt 的 `delivered` 与任务成功严格分离。
 12. Qwen `DONE`、模型预期和模型自述无法直接产生 `completed` 或 verified fact。
 13. Evidence Provider 只产生注册表中的标准事实，不直接决定任务状态；Semantic Resolution 必须区分独立 semantic evidence 与模型 claim。
 14. Assertion Evaluator 对 `unknown` 或 `conflict` 不得判定通过；只有 Task State Reducer 可以产生 `completed`。
 15. 正常组件通信不传合成器原始完整窗口树、完整 Ledger、完整模型输出或大而空的统一 envelope。
-16. Ledger 只保存不可变事件、核心对象引用和 artifact 引用；`assertion.evaluated` 使用 `assertion_result` 类型，只有 Reducer 接受后才能产生独立 `verified_fact` 事件。
-17. 新增合成器只增加 Adapter，新增验证来源只增加 Evidence Provider，新增启动方式只增加 ApplicationLauncher。
+16. Ledger 只保存不可变事件、核心对象引用和 artifact 引用；已通过断言直接以
+    AssertionResult 引用进入 TaskState，不再额外制造悬空的 VerifiedFact 对象。
+17. 新增合成器只增加 Adapter，新增验证来源只增加 Evidence Provider，新增动作
+    执行方式只增加 backend 内部的 ActionExecutor handler。
 18. 所有跨组件核心对象带 `schema_version`、稳定 ID、来源和必要引用。
-19. 每个失败都有稳定错误码、责任组件和可执行恢复建议；安全拒绝与环境变化不计入组件错误率。
+19. 每个失败对象使用统一 ReasonCode 和可执行恢复建议；责任组件只在 diagnostic
+    Attribution 中表达，安全拒绝与环境变化不计入组件错误率。
 20. 当前公开接口保持紧凑：Qwen 工作流只通过 `gui_run`，不再保留
     `qwen_cua_*` 兼容工具；历史实验接口不得绕过 v2 事务。
 21. `z_index` 是可选、当前 Snapshot 内 best-effort 字段；Core 的点击安全不能要求所有 Adapter 提供全局完美全序。
 22. Adapter 提供 `hit-test`、`partial-order`、`total-order`、`topmost-only` 或 `unavailable` 中明确的 stacking capability，能力不足时返回 `unknown`。
 23. `ExecutionReceipt.delivered` 始终只表示执行后端接受并注入动作，不能被输入回执或后续 evidence 扩大为应用处理或业务成功。
+
+## 20. v2.1 克制化收敛
+
+v2.1 不重写 v2 的责任边界，只减少调用方和维护者必须同时理解的概念。目标是：
+
+本节是 v2.1 的规范性增量；与前文发生冲突时，以本节为准。前文中的
+`ExecutionReceipt.rejected`、独立 VerifiedFact、Core 直接依赖 ApplicationLauncher、
+默认 Attribution 输出及常规显式流水线均视为待迁移的 v2 行为。
+
+```text
+少量公开操作
++ 每层一个权威结果对象
++ 一个统一 TaskState
++ 按需诊断
+```
+
+### 20.1 收紧公开接口
+
+普通调用方只使用：
+
+```text
+run
+status
+confirm
+reset
+```
+
+`observe`、`propose`、`decide`、`execute`、`evaluate` 和 `trace` 保留为诊断与测试
+操作，不作为常规业务调用流程。`gui_run` 的默认响应只包含操作结果、TaskState 和
+必要对象引用；窗口树、截图、模型原始输出、Guard、SemanticResolution、Attribution
+与完整事件链只在显式 diagnostic 或 trace 中展开。
+
+### 20.2 单一执行边界
+
+Core 只依赖 `ActionExecutor.execute(ActionProposal) -> ExecutionReceipt`。输入注入、
+平台快捷键和应用启动的具体路由由 desktop backend 负责。Core 不按 ActionType 选择
+PyAutoGUI、`dde-am` 或其他实现。
+
+Action Gate 未允许、等待确认或 Guard 重检失败时，ActionExecutor 不得被调用，也不
+产生 ExecutionReceipt。Guard 失败形成新的 `PolicyDecision(status=stale)`，并复用统一
+ReasonCode。
+
+### 20.3 最小 Proposal
+
+ActionProposal 的权威内容只包括动作、来源 Snapshot 和必要 provenance：
+
+```text
+proposal_id
+source
+based_on_snapshot
+action
+claimed_intent（可选）
+debug_ref（可选）
+```
+
+现有 `semantic_intent` 迁移为 `claimed_intent`，强调它只是模型或主控声明，不能直接
+授权动作。`expected_effect` 从核心对象删除；业务结果由 TaskContract assertions 定义，
+模型预期只保存在 debug artifact。
+
+### 20.4 内部安全对象不进入默认通信
+
+ProposalGuard 与 SemanticResolution 继续作为 Core 内部安全对象，但普通调用方无需
+理解其字段。PolicyDecision 默认只暴露 `status` 和 `reason_code`；命中窗口、语义标签、
+来源证据与 Guard 条件通过引用诊断。
+
+### 20.5 精简 Evidence 与任务事实
+
+EvidenceRecord 的最小公共结构为：
+
+```text
+source
+subject
+facts
+quality
+captured_at
+artifact_ref（可选）
+```
+
+失效、过期或冲突材料由 AssertionResult 的排除信息说明，不在 EvidenceRecord 中堆叠
+多个相互重叠的有效性布尔值。
+
+v2.1 不引入独立 VerifiedFact 对象。TaskState 保存已通过 AssertionResult 的引用或稳定
+assertion ID；事实内容仍来自对应 EvidenceRecord。只有出现跨任务复用且无法由断言引用
+满足的真实需求时，才重新评估是否增加 VerifiedFact。
+
+### 20.6 简化审计心智模型
+
+对外统一使用 `AuditTrail` 概念。内部仍可分别使用 ObjectStore 保存对象、EventLedger
+保存顺序和因果关系，但它们不能表现为两个相互竞争的权威来源。
+
+当 `event_type` 已唯一确定对象类型时，不再重复保存等价的 `epistemic_type`。认识论质量
+由被引用对象自身表达；Ledger 只负责“发生了什么、何时发生、由什么导致”。
+
+### 20.7 单一配置来源
+
+JSON 管理所有非秘密运行配置，环境变量只提供 API key 等 secret。启动时输出脱敏后的
+effective config。检测到会被忽略的旧行为变量时必须明确报错或警告，不能静默清除，
+避免配置看似存在但实际未生效。
+
+### 20.8 文档分层
+
+主设计文档最终只保留核心对象、状态机、公开 API 和不可破坏的责任边界。故障案例、
+Attribution 枚举与 benchmark 规则迁入附录；端口和 adapter 细节保留在实现指南；可执行
+步骤保留在手工测试指南。主规范目标控制在约 300～500 行。
+
+### 20.9 迁移顺序
+
+```text
+1. 收缩状态与 ReasonCode
+2. 删除未执行路径的 rejected Receipt
+3. 合并为单一 ActionExecutor
+4. 收紧默认 facade 与 Attribution 输出
+5. 统一配置来源并打印 effective config
+6. 精简 Evidence、Ledger 和文档
+```
+
+每一步必须先更新契约测试，再修改实现；迁移期间可以读取旧对象，但不得继续生成已经
+废弃的状态或重复事实。
