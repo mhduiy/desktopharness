@@ -74,8 +74,7 @@ class QwenCUAProposalProvider:
             source="qwen-cua",
             based_on_snapshot=context.based_on_snapshot,
             action=action,
-            semantic_intent=None,
-            expected_effect={},
+            claimed_intent=None,
             debug_ref=debug_ref,
         )
 

@@ -110,10 +110,10 @@ class ActionGate:
         elif proposal.action.type == ActionType.DONE:
             tags.append(SemanticTag("navigation", "action-schema", None, EvidenceConfidence.DETERMINISTIC))
 
-        if proposal.semantic_intent:
+        if proposal.claimed_intent:
             tags.append(
                 SemanticTag(
-                    proposal.semantic_intent,
+                    proposal.claimed_intent,
                     "proposal-claim",
                     proposal.debug_ref,
                     EvidenceConfidence.MODEL_CLAIM,

@@ -45,16 +45,16 @@ class TaskStateReducer:
             retries = state.retries
         elif recoverable_failures:
             if state.retries < contract.limits.max_retries:
-                status = TaskStatus.RETRY
+                status = TaskStatus.RETRYING
                 retries = state.retries + 1
             else:
                 status = TaskStatus.FAILED
                 retries = state.retries
         elif unresolved:
-            status = TaskStatus.NEEDS_EVIDENCE
+            status = TaskStatus.RUNNING
             retries = state.retries
         else:
-            status = TaskStatus.CONTINUE
+            status = TaskStatus.RUNNING
             retries = state.retries
         verified = tuple(f"assertion:{item}" for item in completed)
         return TaskState(
@@ -66,4 +66,3 @@ class TaskStateReducer:
             failed_assertions=failed,
             verified_facts=verified,
         )
-

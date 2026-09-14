@@ -126,9 +126,9 @@ class AssertionStatus(StrEnum):
 
 
 class TaskStatus(StrEnum):
-    CONTINUE = "continue"
-    RETRY = "retry"
-    NEEDS_EVIDENCE = "needs-evidence"
+    RUNNING = "running"
+    NEEDS_CONFIRMATION = "needs-confirmation"
+    RETRYING = "retrying"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -376,8 +376,7 @@ class ActionProposal:
     source: str
     based_on_snapshot: str
     action: Action
-    semantic_intent: str | None = None
-    expected_effect: Mapping[str, Any] = field(default_factory=dict)
+    claimed_intent: str | None = None
     debug_ref: str | None = None
     schema_version: str = SCHEMA_VERSION
 
@@ -482,7 +481,7 @@ class AssertionResult:
 @dataclass(frozen=True, slots=True)
 class TaskState:
     task_id: str
-    status: TaskStatus = TaskStatus.CONTINUE
+    status: TaskStatus = TaskStatus.RUNNING
     step: int = 0
     retries: int = 0
     completed_assertions: tuple[str, ...] = ()

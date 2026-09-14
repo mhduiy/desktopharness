@@ -89,7 +89,7 @@ class GuiRunFacade:
             description = {
                 "protocol_version": 2,
                 "schema_version": "1",
-                "schema_revision": "2.1-p2",
+                "schema_revision": "2.1-p3",
                 "adapter": to_primitive(self.runtime.compositor.descriptor),
                 "capabilities": {
                     "pointer": self.runtime.executor is not None,
@@ -111,7 +111,8 @@ class GuiRunFacade:
                     "executor": _component_id(self.runtime.executor, "executor_id"),
                 },
                 "actions": [item.value for item in ActionType],
-                "operations": ["describe", "observe", "propose", "decide", "execute", "evaluate", "run", "status", "reset", "trace"],
+                "operations": ["describe", "observe", "propose", "decide", "execute", "evaluate", "run", "status", "confirm", "reset", "trace"],
+                "recommended_operations": ["run", "status", "confirm", "reset"],
                 "context_strategies": sorted(self.runtime.context_builder.STRATEGIES),
                 "policy_profiles": sorted(self.runtime.gate.policy_profiles),
             }
@@ -158,32 +159,34 @@ class GuiRunFacade:
                 value = self.runtime.submit_proposal(
                     resolved_task, parse_action_proposal(proposal, current.snapshot_id)
                 )
-            return self._response(operation, "needs-execution", value.proposal_id, diagnostic, resolved_task)
+            return self._response(operation, "running", value.proposal_id, diagnostic, resolved_task)
         if operation == "decide":
             value = self.runtime.decide(proposal_id.strip())
             ref = self._last_object_ref(resolved_task, "decision.created")
             status = {
-                PolicyStatus.ALLOW: "needs-execution",
+                PolicyStatus.ALLOW: "running",
                 PolicyStatus.CONFIRM: "needs-confirmation",
-                PolicyStatus.DENY: "refused",
-                PolicyStatus.INVALID: "refused",
-                PolicyStatus.STALE: "refused",
+                PolicyStatus.DENY: "failed",
+                PolicyStatus.INVALID: "failed",
+                PolicyStatus.STALE: "running",
             }[value.status]
             return self._response(operation, status, ref, diagnostic, resolved_task)
-        if operation == "execute":
-            value = self.runtime.execute(proposal_id.strip(), confirmed=confirmed)
+        if operation in {"execute", "confirm"}:
+            value = self.runtime.execute(
+                proposal_id.strip(), confirmed=confirmed or operation == "confirm"
+            )
             if isinstance(value, PolicyDecision):
                 ref = self._last_object_ref(resolved_task, "decision.created")
                 status = (
                     "needs-confirmation"
                     if value.status == PolicyStatus.CONFIRM
-                    else "refused"
+                    else "failed" if value.status in {PolicyStatus.DENY, PolicyStatus.INVALID} else "running"
                 )
                 return self._response(operation, status, ref, diagnostic, resolved_task)
             if value.error_code == "CONFIRMATION_REQUIRED":
                 status = "needs-confirmation"
             else:
-                status = "needs-evidence" if value.status.value == "delivered" else "failed"
+                status = "running" if value.status.value == "delivered" else "failed"
             response = self._response(operation, status, value.execution_id, diagnostic, resolved_task)
             if value.error_code and value.error_code != "CONFIRMATION_REQUIRED":
                 recovery = _recovery_for(value.error_code)
@@ -197,14 +200,7 @@ class GuiRunFacade:
         if operation == "evaluate":
             _, _, state = self.runtime.evaluate(resolved_task)
             ref = self._last_object_ref(resolved_task, "task.transitioned")
-            status = {
-                TaskStatus.COMPLETED: "completed",
-                TaskStatus.FAILED: "failed",
-                TaskStatus.NEEDS_EVIDENCE: "needs-evidence",
-                TaskStatus.RETRY: "partial",
-                TaskStatus.CONTINUE: "ok",
-            }[state.status]
-            return self._response(operation, status, ref, diagnostic, resolved_task)
+            return self._response(operation, state.status.value, ref, diagnostic, resolved_task)
         if operation == "run":
             value = self.runtime.run(
                 resolved_task,
@@ -220,14 +216,7 @@ class GuiRunFacade:
         if operation == "status":
             state = self.runtime.status(resolved_task)
             ref = self.runtime.store.put(state, prefix="task-state")
-            status = {
-                TaskStatus.CONTINUE: "ok",
-                TaskStatus.RETRY: "partial",
-                TaskStatus.NEEDS_EVIDENCE: "needs-evidence",
-                TaskStatus.COMPLETED: "completed",
-                TaskStatus.FAILED: "failed",
-            }[state.status]
-            return self._response(operation, status, ref, diagnostic, resolved_task)
+            return self._response(operation, state.status.value, ref, diagnostic, resolved_task)
         if operation == "trace":
             return {
                 "protocol_version": 2,
@@ -251,17 +240,17 @@ class GuiRunFacade:
         diagnostic: bool,
         task_id: str | None = None,
     ) -> dict[str, Any]:
-        attribution_refs = (
-            tuple(item.attribution_id for item in self.runtime.attributions(task_id))
-            if task_id is not None
-            else ()
-        )
-        response = response_envelope(
-            operation, status, object_ref=ref, attribution_refs=attribution_refs
-        )
+        response = response_envelope(operation, status, object_ref=ref)
         response["task_id"] = task_id
+        response["task_state"] = (
+            self.runtime.status(task_id).status.value if task_id is not None else None
+        )
         if diagnostic:
             response["object"] = to_primitive(self.runtime.store.require(ref))
+            if task_id is not None:
+                response["attribution_refs"] = [
+                    item.attribution_id for item in self.runtime.attributions(task_id)
+                ]
         return response
 
     def _last_object_ref(self, task_id: str, event_type: str) -> str:
@@ -350,12 +339,16 @@ def parse_action_proposal(value: dict[str, Any], default_snapshot: str) -> Actio
     for key, item in action_value.items():
         if key not in {"type", "coordinate", "coordinate_space", "parameters"}:
             parameters.setdefault(key, item)
+    claimed_intent = value.get("claimed_intent")
+    if "semantic_intent" in value:
+        raise ValueError("semantic_intent is not supported; use claimed_intent")
+    if "expected_effect" in value:
+        raise ValueError("expected_effect is not supported; define completion with task assertions")
     return ActionProposal(
         proposal_id=str(value.get("proposal_id") or new_id("proposal")),
         source=str(value.get("source") or "controller"),
         based_on_snapshot=str(value.get("based_on_snapshot") or default_snapshot),
         action=Action(action_type, point, space, parameters),
-        semantic_intent=value.get("semantic_intent"),
-        expected_effect=dict(value.get("expected_effect") or {}),
+        claimed_intent=claimed_intent,
         debug_ref=value.get("debug_ref"),
     )

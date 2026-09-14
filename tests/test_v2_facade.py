@@ -22,7 +22,7 @@ from mcp_autogui.core.models import (
 )
 from mcp_autogui.core.orchestrator import CoreOrchestrator
 from mcp_autogui.core.store import ObjectStore
-from mcp_autogui.facade import GuiRunFacade
+from mcp_autogui.facade import GuiRunFacade, parse_action_proposal
 from mcp_autogui.adapters.proposal.qwen_cua import QwenCUAProposalProvider
 
 
@@ -104,9 +104,10 @@ class FacadeTests(unittest.TestCase):
     def test_describe_exposes_capabilities_separately_from_task_permissions(self):
         response = self.facade.handle("describe", diagnostic=True)
         self.assertEqual(response["protocol_version"], 2)
-        self.assertEqual(response["object"]["schema_revision"], "2.1-p2")
+        self.assertEqual(response["object"]["schema_revision"], "2.1-p3")
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
         self.assertIn("pointer.click", response["object"]["actions"])
+        self.assertEqual(response["object"]["recommended_operations"], ["run", "status", "confirm", "reset"])
 
     def test_compact_operations_return_references_and_trace_expands_them(self):
         observed = self.facade.handle("observe", task_contract=TASK)
@@ -120,14 +121,16 @@ class FacadeTests(unittest.TestCase):
                     "type": "pointer.click",
                     "coordinate": {"space": "desktop-logical", "x": 100, "y": 100},
                 },
-                "semantic_intent": "navigation",
+                "claimed_intent": "navigation",
             },
         )
         decided = self.facade.handle(
             "decide", task_id="portable-task", proposal_id=proposed["object_ref"]
         )
 
-        self.assertEqual(proposed["status"], "needs-execution")
+        self.assertEqual(proposed["status"], "running")
+        self.assertEqual(proposed["task_state"], "running")
+        self.assertNotIn("attribution_refs", proposed)
         # Controller intent is still a claim without independent semantic evidence.
         self.assertEqual(decided["status"], "needs-confirmation")
         expanded = self.facade.handle(
@@ -139,14 +142,14 @@ class FacadeTests(unittest.TestCase):
             "execute", task_id="portable-task", proposal_id=proposed["object_ref"]
         )
         delivered = self.facade.handle(
-            "execute", task_id="portable-task", proposal_id=proposed["object_ref"], confirmed=True
+            "confirm", task_id="portable-task", proposal_id=proposed["object_ref"]
         )
         repeated = self.facade.handle(
-            "execute", task_id="portable-task", proposal_id=proposed["object_ref"], confirmed=True
+            "confirm", task_id="portable-task", proposal_id=proposed["object_ref"]
         )
         self.assertEqual(pending["status"], "needs-confirmation")
         self.assertTrue(pending["object_ref"].startswith("policy-decision-"))
-        self.assertEqual(delivered["status"], "needs-evidence")
+        self.assertEqual(delivered["status"], "running")
         self.assertEqual(repeated["object_ref"], delivered["object_ref"])
 
     def test_run_exposes_the_bounded_automatic_transaction_loop(self):
@@ -159,9 +162,27 @@ class FacadeTests(unittest.TestCase):
         facade = GuiRunFacade(runtime)
         response = facade.handle("run", task_contract=TASK, max_iterations=1, diagnostic=True)
 
-        self.assertEqual(response["status"], "partial")
+        self.assertEqual(response["status"], "running")
         self.assertEqual(len(response["object"]["iterations"]), 1)
         self.assertEqual(response["retry"]["required_action"], "continue-run")
+
+    def test_legacy_proposal_fields_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "semantic_intent"):
+            parse_action_proposal(
+                {
+                    "semantic_intent": "navigation",
+                    "action": {"type": "done"},
+                },
+                "snapshot-1",
+            )
+        with self.assertRaisesRegex(ValueError, "expected_effect"):
+            parse_action_proposal(
+                {
+                    "expected_effect": {"opened": True},
+                    "action": {"type": "done"},
+                },
+                "snapshot-1",
+            )
 
 
 class Backend:

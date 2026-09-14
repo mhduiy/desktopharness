@@ -102,7 +102,7 @@ def click_proposal(snapshot_id="snapshot-1", semantic="navigation", source="cont
         source=source,
         based_on_snapshot=snapshot_id,
         action=Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),
-        semantic_intent=semantic,
+        claimed_intent=semantic,
     )
 
 
@@ -337,7 +337,7 @@ class OrchestratorTests(unittest.TestCase):
                 {
                     "independent_tags": lambda _self, proposal, _contract: [
                         SemanticTag(
-                            proposal.semantic_intent or "unknown",
+                            proposal.claimed_intent or "unknown",
                             "fixture",
                             None,
                             EvidenceConfidence.DETERMINISTIC,
@@ -422,7 +422,7 @@ class OrchestratorTests(unittest.TestCase):
         receipt = runtime.execute(proposal.proposal_id)
 
         self.assertEqual(receipt.status, ExecutionStatus.DELIVERED)
-        self.assertEqual(runtime.status("task-1").status, TaskStatus.CONTINUE)
+        self.assertEqual(runtime.status("task-1").status, TaskStatus.RUNNING)
         _, _, state = runtime.evaluate("task-1")
         self.assertEqual(state.status, TaskStatus.COMPLETED)
 
@@ -441,7 +441,7 @@ class OrchestratorTests(unittest.TestCase):
         _, results, state = runtime.evaluate("task-1")
 
         self.assertEqual(results[0].status, AssertionStatus.UNKNOWN)
-        self.assertEqual(state.status, TaskStatus.NEEDS_EVIDENCE)
+        self.assertEqual(state.status, TaskStatus.RUNNING)
         attribution = runtime.attributions("task-1")[0]
         self.assertEqual(attribution.code, "INSUFFICIENT_GROUND_TRUTH")
         self.assertFalse(attribution.primary)

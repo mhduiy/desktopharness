@@ -324,6 +324,9 @@ class CoreOrchestrator:
                 caused_by=self._causes_for(previous_ref),
                 snapshot_id=proposal.based_on_snapshot,
             )
+            self._states[task_id] = replace(
+                self._states[task_id], status=TaskStatus.RUNNING
+            )
         if decision.status != PolicyStatus.ALLOW:
             self._record_non_execution(task_id, proposal, decision)
             return decision
@@ -470,7 +473,7 @@ class CoreOrchestrator:
                     ),
                     snapshot_id=snapshot.snapshot_id,
                 )
-        if state.status in {TaskStatus.RETRY, TaskStatus.FAILED}:
+        if state.status in {TaskStatus.RETRYING, TaskStatus.FAILED}:
             failed_refs = tuple(
                 ref
                 for result in results
@@ -491,7 +494,10 @@ class CoreOrchestrator:
                     else AttributionEvidenceStatus.INSUFFICIENT
                 ),
             )
-        elif state.status == TaskStatus.NEEDS_EVIDENCE:
+        elif any(
+            result.status in {AssertionStatus.UNKNOWN, AssertionStatus.CONFLICT}
+            for result in results
+        ):
             self._record_attribution(
                 task_id,
                 AttributionEventKind.INSUFFICIENT_EVIDENCE,
@@ -566,7 +572,7 @@ class CoreOrchestrator:
             if decision.status == PolicyStatus.CONFIRM and not confirmed:
                 return {"status": "needs-confirmation", "iterations": tuple(outcomes)}
             if decision.status not in {PolicyStatus.ALLOW, PolicyStatus.CONFIRM}:
-                return {"status": "refused", "iterations": tuple(outcomes)}
+                return {"status": "failed", "iterations": tuple(outcomes)}
             if receipt is None or receipt.status != ExecutionStatus.DELIVERED:
                 return {"status": "failed", "iterations": tuple(outcomes)}
             if state.status == TaskStatus.COMPLETED:
@@ -595,21 +601,17 @@ class CoreOrchestrator:
                     evidence_status=AttributionEvidenceStatus.INFERRED,
                 )
                 return {
-                    "status": "partial",
+                    "status": "running",
                     "iterations": tuple(outcomes),
                     "retry": {"retry": False, "required_action": "ask-controller"},
                 }
             active_strategy = (
-                "recovery"
-                if state.status == TaskStatus.RETRY
-                else "verification-focused"
-                if state.status == TaskStatus.NEEDS_EVIDENCE
-                else strategy
+                "recovery" if state.status == TaskStatus.RETRYING else strategy
             )
             if proposal.action.type == ActionType.DONE and state.status != TaskStatus.COMPLETED:
-                return {"status": "needs-evidence", "iterations": tuple(outcomes)}
+                return {"status": "running", "iterations": tuple(outcomes)}
         return {
-            "status": "partial",
+            "status": "running",
             "iterations": tuple(outcomes),
             "retry": {"retry": True, "required_action": "continue-run"},
         }
@@ -706,6 +708,18 @@ class CoreOrchestrator:
         if proposal.proposal_id not in self._provider_finalized:
             self._record_provider_decision(task_id, decision)
             self._provider_finalized.add(proposal.proposal_id)
+        if decision.status == PolicyStatus.CONFIRM:
+            self._states[task_id] = replace(
+                self._states[task_id], status=TaskStatus.NEEDS_CONFIRMATION
+            )
+        elif decision.status in {PolicyStatus.DENY, PolicyStatus.INVALID}:
+            self._states[task_id] = replace(
+                self._states[task_id], status=TaskStatus.FAILED
+            )
+        elif decision.status == PolicyStatus.STALE:
+            self._states[task_id] = replace(
+                self._states[task_id], status=TaskStatus.RUNNING
+            )
         reason_code = decision.reason_code
         environment_codes = {
             "COORDINATE_SPACE_CHANGED",
@@ -902,7 +916,6 @@ def response_envelope(
     error: dict[str, Any] | None = None,
     retry: dict[str, Any] | None = None,
     debug_ref: str | None = None,
-    attribution_refs: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     return {
         "protocol_version": 2,
@@ -912,5 +925,4 @@ def response_envelope(
         "error": error,
         "retry": retry,
         "debug_ref": debug_ref,
-        "attribution_refs": list(attribution_refs),
     }

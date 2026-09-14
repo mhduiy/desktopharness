@@ -450,8 +450,7 @@ def mcp_autogui_main(
                 ActionType.APPLICATION_LAUNCH,
                 parameters={"app_id": resolved_app_id},
             ),
-            semantic_intent="open_application",
-            expected_effect={"active_app_id": expected_app_id} if expected_app_id else {},
+            claimed_intent="open_application",
         )
         runtime.submit_proposal(task_id, proposal)
         decision = runtime.decide(proposal.proposal_id)
