@@ -16,6 +16,11 @@
 | P4a | 完成 | 新 Ledger 不写重复 `epistemic_type`，旧 CSV 可读 |
 | P4b | 完成 | Context 仅保留 compact/recovery；EvidenceRecord 已收敛且不缓存 verified facts |
 | P5 | 进行中 | `autoui-smoke` 实际调用只读 `gui_run(describe)`；待真实环境回归 |
+| P6 | 完成 | 协议对象强制 ReasonCode；Core、adapter 与 Facade 不再构造裸错误码 |
+| P7 | 完成 | 运行态索引迁入 TaskRepository；事件、引用与归因迁入 AuditRecorder |
+| P8 | 未开始 | 为 proposal 与 evidence provider 建立统一组装注册机制 |
+| P9 | 未开始 | 集中公开状态映射，分离默认操作与诊断操作 |
+| P10 | 未开始 | 按领域边界拆分 models.py，不改变通信协议 |
 
 ## 运行与预检
 
@@ -34,11 +39,11 @@ uv run --with pytest pytest -q
 | 责任 | 主要位置 |
 | --- | --- |
 | 协议对象与状态 | `src/mcp_autogui/core/models.py`、`core/task_state.py` |
-| 事务协调与策略 | `core/orchestrator.py`、`core/action_gate.py` |
+| 事务协调与策略 | `core/orchestrator.py`、`core/action_gate.py`、`core/task_repository.py` |
 | 默认 MCP 通信 | `facade.py`、`mcp_autogui_main.py` |
 | 执行边界 | `ports/executor.py`、`adapters/executor/`、`adapters/backends/` |
 | 观察与证据 | `ports/compositor.py`、`ports/evidence.py`、`adapters/evidence/` |
-| 审计 | `core/audit.py`、`core/ledger.py`、`audit_cli.py` |
+| 审计 | `core/audit_recorder.py`、`core/audit.py`、`core/ledger.py`、`audit_cli.py` |
 | 配置 | `server_config.py`、`config/mcp-autoui.json` |
 
 ## 配置规则
@@ -53,7 +58,70 @@ uv run --with pytest pytest -q
 - **新模型**：实现 `ProposalProvider`，只产生单个 Proposal。
 - **新证据来源**：实现 `EvidenceProvider`，声明标准 fact path，并添加 unknown/conflict 测试。
 
-## 待办
+## 后续实施计划
+
+以下阶段只收敛实现，不增加新的领域状态，也不改变
+`Proposal → Decision → Receipt → Evidence → Assertion → TaskState` 事实链。每个阶段独立修改、测试、确认和提交。
+
+### P6：统一 ReasonCode
+
+目标：让事实对象引用同一套稳定原因码，避免枚举、裸字符串和 Attribution 各自演化。
+
+- `PolicyDecision.reason_code`、`ExecutionReceipt.error_code` 与 Attribution code 使用 `ReasonCode`。
+- Core、gate、executor 和 backend 不再直接构造未登记的大写错误码字符串。
+- 序列化仍输出稳定字符串，不增加兼容层或第二套 registry。
+- Attribution 只补充 stage、owner、event kind，不翻译或重命名原因码。
+
+验收：源码检查不存在协议错误码裸字符串；Decision、Receipt、Attribution 的序列化和现有行为测试通过。
+
+### P7：拆薄 CoreOrchestrator
+
+目标：Core 保留事务语义，但不由一个类同时承担事务、运行态索引和审计投影细节。
+
+- `CoreOrchestrator` 保留公开事务入口和执行顺序。
+- 将 task/proposal/decision/receipt 的运行态索引移入内部 state repository。
+- 将事件追加、对象引用和 Attribution 记录移入内部 audit recorder。
+- `ActionGate`、`AssertionEvaluator`、`TaskStateReducer` 继续保持纯领域组件。
+- 不允许新组件依赖 adapter，也不允许 adapter 相互调用。
+
+验收：Core 对外方法与事实链不变；Orchestrator 不再直接维护成组字典和审计细节；完整测试通过。
+
+### P8：统一扩展组装
+
+目标：新增模型或证据来源时，只新增实现和注册，不修改配置解析与服务入口的条件分支。
+
+- 为 `ProposalProvider` 和 `EvidenceProvider` 建立与 desktop backend 一致的显式 registry/factory。
+- provider 自己声明稳定 ID、配置校验和构造逻辑。
+- composition root 只按配置选择 provider，不导入具体实现细节。
+- 未知 provider、重复注册和无效配置必须在启动时失败。
+
+验收：用测试 provider 证明扩展无需修改 Core、Facade 或主组装流程；内建 Qwen、compositor、AT-SPI、OmniParser 行为不变。
+
+### P9：收敛公开入口
+
+目标：默认调用面只表达任务生命周期，诊断能力不污染日常协议。
+
+- 使用一个纯映射函数完成 `Domain Result + TaskState → Public Response`。
+- 默认入口仅保留 `run`、`status`、`confirm`、`reset` 和 `describe`。
+- `observe`、`propose`、`decide`、`execute`、`evaluate`、`trace` 移入独立诊断入口。
+- 默认响应不返回 Guard、Attribution、原始对象或内部 pipeline stage。
+
+验收：所有公开状态只有 `running`、`needs-confirmation`、`retrying`、`completed`、`failed`；诊断测试与默认协议测试相互独立。
+
+### P10：拆分领域模型文件
+
+目标：让代码布局反映既有责任边界，降低阅读和修改成本。
+
+- transaction：Proposal、Decision、Receipt 与 Guard。
+- task：Contract、TaskState 与限制。
+- desktop：Snapshot、Geometry 与 capabilities。
+- evidence：Evidence、Assertion 与排除原因。
+- audit：LedgerEvent 与 Attribution。
+- 对外从 `core` 提供稳定导出，禁止形成循环依赖。
+
+验收：仅移动定义和更新导入，不改变 schema、序列化结果或运行行为；完整测试通过。
+
+## 回归待办
 
 1. 由 `AssertionResult.excluded_evidence` 统一表达过期、失效和冲突。
 2. 完成真实 Treeland 回归矩阵，并记录环境阻塞与失败归因。

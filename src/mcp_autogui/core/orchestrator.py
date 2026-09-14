@@ -14,6 +14,7 @@ from ..ports.frame import FrameProvider
 from ..ports.policy import PolicyProvider
 from ..ports.proposal import ProposalProvider
 from .action_gate import ActionGate
+from .audit_recorder import AuditRecorder
 from .assertion_evaluator import AssertionEvaluator, SUPPORTED_OPERATORS
 from .context_builder import ContextBuilder
 from .facts import require_standard_fact_path
@@ -34,16 +35,15 @@ from .models import (
     ExecutionStatus,
     PolicyDecision,
     PolicyStatus,
-    ProposalGuard,
+    ReasonCode,
     SemanticTag,
     TaskContract,
     TaskState,
     TaskStatus,
-    new_id,
     to_primitive,
-    utc_now,
 )
 from .store import ObjectStore
+from .task_repository import TaskRepository
 from .task_state import TaskStateReducer
 
 
@@ -75,30 +75,16 @@ class CoreOrchestrator:
         for provider in self.evidence_providers:
             for path in provider.fact_paths:
                 require_standard_fact_path(path)
-        self.store = store or ObjectStore()
-        self.ledger = ledger or EventLedger()
+        self._audit = AuditRecorder(store, ledger)
+        self.store = self._audit.store
+        self.ledger = self._audit.ledger
         self.gate = ActionGate(
             compositor.descriptor, compositor.hit_test, policy_profiles=policy_profiles
         )
         self.evaluator = AssertionEvaluator()
         self.reducer = TaskStateReducer()
         self.context_builder = ContextBuilder()
-        self._contracts: dict[str, TaskContract] = {}
-        self._states: dict[str, TaskState] = {}
-        self._latest_snapshot: dict[str, CanonicalSnapshot] = {}
-        self._latest_frame: dict[str, Any] = {}
-        self._proposal_task: dict[str, str] = {}
-        self._provider_proposals: set[str] = set()
-        self._provider_finalized: set[str] = set()
-        self._decisions: dict[str, PolicyDecision] = {}
-        self._decision_refs: dict[str, str] = {}
-        self._guards: dict[str, ProposalGuard] = {}
-        self._latest_receipt: dict[str, ExecutionReceipt] = {}
-        self._terminal_receipts: dict[str, ExecutionReceipt] = {}
-        self._latest_results: dict[str, tuple[AssertionResult, ...]] = {}
-        self._object_events: dict[str, str] = {}
-        self._primary_attribution: dict[str, str] = {}
-        self._attribution_keys: set[tuple[str, str, str]] = set()
+        self._tasks = TaskRepository()
         self._execution_lock = RLock()
 
     def register_task(self, contract: TaskContract) -> TaskState:
@@ -115,13 +101,13 @@ class CoreOrchestrator:
             require_standard_fact_path(assertion.path)
             if assertion.operator not in SUPPORTED_OPERATORS:
                 raise ValueError(f"unsupported assertion operator: {assertion.operator}")
-        if contract.task_id in self._contracts:
+        if contract.task_id in self._tasks.contracts:
             raise ValueError(f"task already exists: {contract.task_id}")
-        self._contracts[contract.task_id] = contract
-        self._states[contract.task_id] = TaskState(task_id=contract.task_id)
+        self._tasks.contracts[contract.task_id] = contract
+        self._tasks.states[contract.task_id] = TaskState(task_id=contract.task_id)
         contract_ref = self.store.put(contract, prefix="task-contract")
         self._append_event(contract.task_id, "task.created", "controller_contract", contract_ref)
-        return self._states[contract.task_id]
+        return self._tasks.states[contract.task_id]
 
     def observe(self, task_id: str) -> CanonicalSnapshot:
         self._require_task(task_id)
@@ -130,7 +116,7 @@ class CoreOrchestrator:
     def adopt_snapshot(self, task_id: str, snapshot: CanonicalSnapshot) -> CanonicalSnapshot:
         """Record a canonical observation captured by an adapter-aware facade."""
         self._require_task(task_id)
-        self._latest_snapshot[task_id] = snapshot
+        self._tasks.latest_snapshots[task_id] = snapshot
         self.store.put(snapshot, object_ref=snapshot.snapshot_id)
         self._append_event(
             task_id,
@@ -146,11 +132,11 @@ class CoreOrchestrator:
         if self.proposal_provider is None:
             raise RuntimeError("proposal provider is unavailable")
         contract = self._require_task(task_id)
-        state = self._states[task_id]
-        snapshot = self._latest_snapshot.get(task_id) or self.observe(task_id)
+        state = self._tasks.states[task_id]
+        snapshot = self._tasks.latest_snapshots.get(task_id) or self.observe(task_id)
         frame = self.frame_provider.capture_frame() if self.frame_provider is not None else None
         if frame is not None:
-            self._latest_frame[task_id] = frame
+            self._tasks.latest_frames[task_id] = frame
             self.store.put(frame, object_ref=frame.frame_id)
             self._append_event(
                 task_id,
@@ -167,8 +153,8 @@ class CoreOrchestrator:
             self.ledger.events(task_id),
             based_on_snapshot=snapshot.snapshot_id,
             frame=frame,
-            recent_receipt=self._latest_receipt.get(task_id),
-            assertion_results=self._latest_results.get(task_id, ()),
+            recent_receipt=self._tasks.latest_receipts.get(task_id),
+            assertion_results=self._tasks.latest_results.get(task_id, ()),
             spatial_projection={
                 "snapshot_id": snapshot.snapshot_id,
                 "coordinate_space": {
@@ -191,8 +177,8 @@ class CoreOrchestrator:
                 ),
             },
             primary_attribution=(
-                to_primitive(self.store.require(self._primary_attribution[task_id]))
-                if task_id in self._primary_attribution
+                to_primitive(self._audit.primary_attribution(task_id))
+                if self._audit.primary_attribution_ref(task_id) is not None
                 else None
             ),
             strategy=strategy,
@@ -201,7 +187,7 @@ class CoreOrchestrator:
         proposal = self.proposal_provider.propose(context)
         if proposal.based_on_snapshot != snapshot.snapshot_id:
             raise ValueError("proposal must reference the current snapshot")
-        self._provider_proposals.add(proposal.proposal_id)
+        self._tasks.provider_proposals.add(proposal.proposal_id)
         self.submit_proposal(task_id, proposal)
         return proposal
 
@@ -209,9 +195,9 @@ class CoreOrchestrator:
         self, task_id: str, proposal: ActionProposal, *, caused_by: tuple[str, ...] = ()
     ) -> ActionProposal:
         self._require_task(task_id)
-        if proposal.proposal_id in self._proposal_task:
+        if proposal.proposal_id in self._tasks.proposal_tasks:
             raise ValueError("proposal already submitted")
-        self._proposal_task[proposal.proposal_id] = task_id
+        self._tasks.proposal_tasks[proposal.proposal_id] = task_id
         self.store.put(proposal, object_ref=proposal.proposal_id)
         causal_events = caused_by or self._causes_for(proposal.based_on_snapshot)
         if proposal.debug_ref:
@@ -237,30 +223,30 @@ class CoreOrchestrator:
         return proposal
 
     def decide(self, proposal_id: str) -> PolicyDecision:
-        task_id = self._proposal_task.get(proposal_id)
+        task_id = self._tasks.proposal_tasks.get(proposal_id)
         if task_id is None:
             raise KeyError(proposal_id)
         proposal = self.store.require(proposal_id)
         tags: list[SemanticTag] = []
         for provider in self.policy_providers:
-            tags.extend(provider.independent_tags(proposal, self._contracts[task_id]))
+            tags.extend(provider.independent_tags(proposal, self._tasks.contracts[task_id]))
         snapshot = self.store.get(proposal.based_on_snapshot)
         if not isinstance(snapshot, CanonicalSnapshot):
             resolution = self.gate.resolve_semantics(proposal, tags)
             decision = PolicyDecision(
                 proposal_id=proposal.proposal_id,
                 status=PolicyStatus.INVALID,
-                reason_code="SNAPSHOT_UNAVAILABLE",
+                reason_code=ReasonCode.SNAPSHOT_UNAVAILABLE,
                 semantic_resolution_ref=resolution.semantic_resolution_id,
             )
             guard = None
         else:
             decision, guard, resolution = self.gate.decide(
-                proposal, self._contracts[task_id], snapshot, tags
+                proposal, self._tasks.contracts[task_id], snapshot, tags
             )
         self.store.put(resolution, object_ref=resolution.semantic_resolution_id)
         if guard is not None:
-            self._guards[guard.guard_id] = guard
+            self._tasks.guards[guard.guard_id] = guard
             self.store.put(guard, object_ref=guard.guard_id)
         self._store_decision(
             task_id,
@@ -299,17 +285,19 @@ class CoreOrchestrator:
         confirmed: bool = False,
         current_snapshot: CanonicalSnapshot | None = None,
     ) -> PolicyDecision | ExecutionReceipt:
-        task_id = self._proposal_task.get(proposal_id)
+        task_id = self._tasks.proposal_tasks.get(proposal_id)
         if task_id is None:
             raise KeyError(proposal_id)
-        existing_receipt = self._terminal_receipts.get(proposal_id)
+        existing_receipt = self._tasks.terminal_receipts.get(proposal_id)
         if existing_receipt is not None:
             return existing_receipt
         proposal: ActionProposal = self.store.require(proposal_id)
-        decision = self._decisions.get(proposal_id) or self.decide(proposal_id)
+        decision = self._tasks.decisions.get(proposal_id) or self.decide(proposal_id)
         if decision.status == PolicyStatus.CONFIRM and confirmed:
-            previous_ref = self._decision_refs[proposal_id]
-            decision = replace(decision, status=PolicyStatus.ALLOW, reason_code="USER_CONFIRMED")
+            previous_ref = self._tasks.decision_refs[proposal_id]
+            decision = replace(
+                decision, status=PolicyStatus.ALLOW, reason_code=ReasonCode.USER_CONFIRMED
+            )
             self._store_decision(
                 task_id,
                 proposal,
@@ -317,8 +305,8 @@ class CoreOrchestrator:
                 caused_by=self._causes_for(previous_ref),
                 snapshot_id=proposal.based_on_snapshot,
             )
-            self._states[task_id] = replace(
-                self._states[task_id], status=TaskStatus.RUNNING
+            self._tasks.states[task_id] = replace(
+                self._tasks.states[task_id], status=TaskStatus.RUNNING
             )
         if decision.status != PolicyStatus.ALLOW:
             self._record_non_execution(task_id, proposal, decision)
@@ -329,7 +317,7 @@ class CoreOrchestrator:
             if current_snapshot is not None
             else self.observe(task_id)
         )
-        guard = self._guards.get(decision.guard_ref or "")
+        guard = self._tasks.guards.get(decision.guard_ref or "")
         if guard is not None:
             guard_error = self.gate.recheck(guard, latest)
             if guard_error is not None:
@@ -338,7 +326,7 @@ class CoreOrchestrator:
                     task_id,
                     proposal,
                     stale,
-                    caused_by=self._causes_for(self._decision_refs[proposal_id]),
+                    caused_by=self._causes_for(self._tasks.decision_refs[proposal_id]),
                     snapshot_id=latest.snapshot_id,
                 )
                 self._record_non_execution(task_id, proposal, stale)
@@ -356,12 +344,12 @@ class CoreOrchestrator:
                 receipt,
                 proposal_id=proposal.proposal_id,
                 status=ExecutionStatus.FAILED,
-                error_code="EXECUTOR_ACTION_MISMATCH",
+                error_code=ReasonCode.EXECUTOR_ACTION_MISMATCH,
             )
         self._record_receipt(task_id, receipt)
         if receipt.status == ExecutionStatus.DELIVERED:
-            self._states[task_id] = replace(
-                self._states[task_id], step=self._states[task_id].step + 1
+            self._tasks.states[task_id] = replace(
+                self._tasks.states[task_id], step=self._tasks.states[task_id].step + 1
             )
         return receipt
 
@@ -379,7 +367,7 @@ class CoreOrchestrator:
                     AttributionEventKind.ERROR,
                     "evidence-collection",
                     "evidence-provider",
-                    "EVIDENCE_COLLECTION_FAILED",
+                    ReasonCode.EVIDENCE_COLLECTION_FAILED,
                     f"{provider.provider_id}: {type(exc).__name__}",
                 )
                 continue
@@ -414,9 +402,9 @@ class CoreOrchestrator:
                 snapshot_id=snapshot.snapshot_id,
             )
             result_events.append(event.event_id)
-        state = self.reducer.reduce(contract, self._states[task_id], results)
-        self._states[task_id] = state
-        self._latest_results[task_id] = results
+        state = self.reducer.reduce(contract, self._tasks.states[task_id], results)
+        self._tasks.states[task_id] = state
+        self._tasks.latest_results[task_id] = results
         state_ref = self.store.put(state, prefix="task-state")
         self._append_event(
             task_id,
@@ -438,7 +426,11 @@ class CoreOrchestrator:
                 AttributionEventKind.ERROR,
                 AttributionStage.OUTCOME,
                 AttributionOwner.UNKNOWN,
-                "OUTCOME_POSTCONDITION_FAILED" if failed_refs else "ROOT_CAUSE_UNRESOLVED",
+                (
+                    ReasonCode.OUTCOME_POSTCONDITION_FAILED
+                    if failed_refs
+                    else ReasonCode.ROOT_CAUSE_UNRESOLVED
+                ),
                 "One or more required task assertions did not pass",
                 evidence_refs=failed_refs,
                 evidence_status=(
@@ -456,7 +448,7 @@ class CoreOrchestrator:
                 AttributionEventKind.INSUFFICIENT_EVIDENCE,
                 AttributionStage.OUTCOME,
                 AttributionOwner.UNKNOWN,
-                "INSUFFICIENT_GROUND_TRUTH",
+                ReasonCode.INSUFFICIENT_GROUND_TRUTH,
                 "Required assertions lack applicable current evidence",
                 evidence_status=AttributionEvidenceStatus.INSUFFICIENT,
             )
@@ -467,16 +459,16 @@ class CoreOrchestrator:
         proposal = self.propose(task_id, strategy=strategy)
         decision = self.decide(proposal.proposal_id)
         if decision.status not in {PolicyStatus.ALLOW, PolicyStatus.CONFIRM}:
-            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._states[task_id]}
+            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._tasks.states[task_id]}
         if decision.status == PolicyStatus.CONFIRM and not confirmed:
-            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._states[task_id]}
+            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._tasks.states[task_id]}
         execution = self.execute(proposal.proposal_id, confirmed=confirmed)
         if isinstance(execution, PolicyDecision):
             return {
                 "proposal": proposal,
                 "decision": execution,
                 "receipt": None,
-                "state": self._states[task_id],
+                "state": self._tasks.states[task_id],
             }
         receipt = execution
         evidence, results, state = self.evaluate(task_id)
@@ -499,7 +491,7 @@ class CoreOrchestrator:
     ) -> dict[str, Any]:
         """Run bounded single-action transactions until the task blocks or terminates."""
         contract = self._require_task(task_id)
-        remaining = max(0, contract.limits.max_steps - self._states[task_id].step)
+        remaining = max(0, contract.limits.max_steps - self._tasks.states[task_id].step)
         limit = remaining if max_iterations is None else min(remaining, max_iterations)
         if limit < 1:
             raise ValueError("no execution iterations remain")
@@ -508,7 +500,7 @@ class CoreOrchestrator:
         previous_signature: object = None
         active_strategy = strategy
         for _ in range(limit):
-            before = set(self._states[task_id].completed_assertions)
+            before = set(self._tasks.states[task_id].completed_assertions)
             outcome = self.run_step(task_id, confirmed=confirmed, strategy=active_strategy)
             proposal = outcome["proposal"]
             decision = outcome["decision"]
@@ -517,7 +509,7 @@ class CoreOrchestrator:
             outcomes.append(
                 {
                     "proposal_ref": proposal.proposal_id,
-                    "decision_ref": self._decision_refs.get(proposal.proposal_id),
+                    "decision_ref": self._tasks.decision_refs.get(proposal.proposal_id),
                     "execution_ref": receipt.execution_id if receipt is not None else None,
                     "task_status": state.status.value,
                 }
@@ -549,7 +541,7 @@ class CoreOrchestrator:
                     AttributionEventKind.INCOMPLETE,
                     AttributionStage.PLANNING,
                     AttributionOwner.MODEL,
-                    "MODEL_PLANNING_INVALID",
+                    ReasonCode.MODEL_PLANNING_INVALID,
                     "The proposal provider repeated an action without verified progress",
                     evidence_status=AttributionEvidenceStatus.INFERRED,
                 )
@@ -571,17 +563,17 @@ class CoreOrchestrator:
 
     def status(self, task_id: str) -> TaskState:
         self._require_task(task_id)
-        return self._states[task_id]
+        return self._tasks.states[task_id]
 
     def has_task(self, task_id: str) -> bool:
-        return task_id in self._contracts
+        return task_id in self._tasks.contracts
 
     def task_contract(self, task_id: str) -> TaskContract:
         return self._require_task(task_id)
 
     def latest_snapshot(self, task_id: str) -> CanonicalSnapshot | None:
         self._require_task(task_id)
-        return self._latest_snapshot.get(task_id)
+        return self._tasks.latest_snapshots.get(task_id)
 
     def reset(self, task_id: str) -> None:
         self._require_task(task_id)
@@ -591,7 +583,7 @@ class CoreOrchestrator:
         reset_ref = self.store.put(
             {
                 "task_id": task_id,
-                "previous_state": to_primitive(self._states[task_id]),
+                "previous_state": to_primitive(self._tasks.states[task_id]),
                 "reason": "controller-reset",
             },
             prefix="task-reset",
@@ -603,28 +595,12 @@ class CoreOrchestrator:
             reset_ref,
             caused_by=tuple(event.event_id for event in self.ledger.events(task_id)[-1:]),
         )
-        self._contracts.pop(task_id, None)
-        self._states.pop(task_id, None)
-        self._latest_snapshot.pop(task_id, None)
-        self._latest_frame.pop(task_id, None)
-        self._latest_receipt.pop(task_id, None)
-        self._latest_results.pop(task_id, None)
-        self._primary_attribution.pop(task_id, None)
-        self._attribution_keys = {
-            item for item in self._attribution_keys if item[0] != task_id
-        }
-        for proposal_id, owner in tuple(self._proposal_task.items()):
-            if owner == task_id:
-                self._proposal_task.pop(proposal_id, None)
-                self._provider_proposals.discard(proposal_id)
-                self._provider_finalized.discard(proposal_id)
-                self._decisions.pop(proposal_id, None)
-                self._decision_refs.pop(proposal_id, None)
-                self._terminal_receipts.pop(proposal_id, None)
+        self._tasks.clear_task(task_id)
+        self._audit.clear_task(task_id)
 
     def _require_task(self, task_id: str) -> TaskContract:
         try:
-            return self._contracts[task_id]
+            return self._tasks.contracts[task_id]
         except KeyError as exc:
             raise KeyError(f"unknown task: {task_id}") from exc
 
@@ -638,8 +614,8 @@ class CoreOrchestrator:
         snapshot_id: str,
     ) -> str:
         decision_ref = self.store.put(decision, prefix="policy-decision")
-        self._decisions[proposal.proposal_id] = decision
-        self._decision_refs[proposal.proposal_id] = decision_ref
+        self._tasks.decisions[proposal.proposal_id] = decision
+        self._tasks.decision_refs[proposal.proposal_id] = decision_ref
         self._append_event(
             task_id,
             "decision.created",
@@ -657,30 +633,30 @@ class CoreOrchestrator:
         proposal: ActionProposal,
         decision: PolicyDecision,
     ) -> None:
-        if proposal.proposal_id not in self._provider_finalized:
+        if proposal.proposal_id not in self._tasks.provider_finalized:
             self._record_provider_decision(task_id, decision)
-            self._provider_finalized.add(proposal.proposal_id)
+            self._tasks.provider_finalized.add(proposal.proposal_id)
         if decision.status == PolicyStatus.CONFIRM:
-            self._states[task_id] = replace(
-                self._states[task_id], status=TaskStatus.NEEDS_CONFIRMATION
+            self._tasks.states[task_id] = replace(
+                self._tasks.states[task_id], status=TaskStatus.NEEDS_CONFIRMATION
             )
         elif decision.status in {PolicyStatus.DENY, PolicyStatus.INVALID}:
-            self._states[task_id] = replace(
-                self._states[task_id], status=TaskStatus.FAILED
+            self._tasks.states[task_id] = replace(
+                self._tasks.states[task_id], status=TaskStatus.FAILED
             )
         elif decision.status == PolicyStatus.STALE:
-            self._states[task_id] = replace(
-                self._states[task_id], status=TaskStatus.RUNNING
+            self._tasks.states[task_id] = replace(
+                self._tasks.states[task_id], status=TaskStatus.RUNNING
             )
         reason_code = decision.reason_code
         environment_codes = {
-            "COORDINATE_SPACE_CHANGED",
-            "TARGET_DISAPPEARED",
-            "TARGET_IDENTITY_CHANGED",
-            "TARGET_GEOMETRY_INVALIDATED",
-            "TARGET_OCCLUDED",
-            "HIT_TEST_CHANGED",
-            "CURSOR_ORIGIN_CHANGED",
+            ReasonCode.COORDINATE_SPACE_CHANGED,
+            ReasonCode.TARGET_DISAPPEARED,
+            ReasonCode.TARGET_IDENTITY_CHANGED,
+            ReasonCode.TARGET_GEOMETRY_INVALIDATED,
+            ReasonCode.TARGET_OCCLUDED,
+            ReasonCode.HIT_TEST_CHANGED,
+            ReasonCode.CURSOR_ORIGIN_CHANGED,
         }
         if reason_code in environment_codes:
             self._record_attribution(
@@ -691,23 +667,31 @@ class CoreOrchestrator:
                 reason_code,
                 "Proposal guard detected a relevant environment change",
             )
-        elif reason_code in {"SEMANTIC_POLICY_DENIED", "MECHANICAL_PERMISSION_DENIED", "CONFIRMATION_REQUIRED"}:
+        elif reason_code in {
+            ReasonCode.SEMANTIC_POLICY_DENIED,
+            ReasonCode.MECHANICAL_PERMISSION_DENIED,
+            ReasonCode.CONFIRMATION_REQUIRED,
+        }:
             self._record_attribution(
                 task_id,
                 AttributionEventKind.POLICY_DECISION,
                 "policy",
                 "controller-policy",
-                "POLICY_DENIED" if reason_code != "CONFIRMATION_REQUIRED" else "CONFIRMATION_REQUIRED",
+                (
+                    ReasonCode.POLICY_DENIED
+                    if reason_code != ReasonCode.CONFIRMATION_REQUIRED
+                    else ReasonCode.CONFIRMATION_REQUIRED
+                ),
                 "Controller policy did not authorize automatic execution",
             )
 
     def _record_provider_decision(self, task_id: str, decision: PolicyDecision) -> None:
         recorder = getattr(self.proposal_provider, "record_decision", None)
-        proposal_owner = self._proposal_task.get(decision.proposal_id)
+        proposal_owner = self._tasks.proposal_tasks.get(decision.proposal_id)
         if (
             callable(recorder)
             and proposal_owner == task_id
-            and decision.proposal_id in self._provider_proposals
+            and decision.proposal_id in self._tasks.provider_proposals
         ):
             try:
                 recorder(task_id, decision)
@@ -717,7 +701,7 @@ class CoreOrchestrator:
                     AttributionEventKind.ERROR,
                     "protocol",
                     "unknown",
-                    "MODEL_PROTOCOL_INVALID",
+                    ReasonCode.MODEL_PROTOCOL_INVALID,
                     "Proposal provider rejected decision feedback",
                 )
 
@@ -729,25 +713,27 @@ class CoreOrchestrator:
         terminal: bool = True,
         notify_provider: bool = True,
     ) -> None:
-        self._latest_receipt[task_id] = receipt
+        self._tasks.latest_receipts[task_id] = receipt
         if terminal:
-            self._terminal_receipts[receipt.proposal_id] = receipt
+            self._tasks.terminal_receipts[receipt.proposal_id] = receipt
         self.store.put(receipt, object_ref=receipt.execution_id)
         self._append_event(
             task_id,
             "execution.completed",
             "execution_receipt",
             receipt.execution_id,
-            caused_by=self._causes_for(self._decision_refs.get(receipt.proposal_id, receipt.proposal_id)),
+            caused_by=self._causes_for(
+                self._tasks.decision_refs.get(receipt.proposal_id, receipt.proposal_id)
+            ),
         )
         recorder = getattr(self.proposal_provider, "record_execution", None)
-        proposal_owner = self._proposal_task.get(receipt.proposal_id)
+        proposal_owner = self._tasks.proposal_tasks.get(receipt.proposal_id)
         if (
             notify_provider
             and callable(recorder)
             and proposal_owner == task_id
-            and receipt.proposal_id in self._provider_proposals
-            and receipt.proposal_id not in self._provider_finalized
+            and receipt.proposal_id in self._tasks.provider_proposals
+            and receipt.proposal_id not in self._tasks.provider_finalized
         ):
             try:
                 recorder(task_id, receipt)
@@ -759,7 +745,7 @@ class CoreOrchestrator:
                     AttributionEventKind.ERROR,
                     "protocol",
                     "unknown",
-                    "MODEL_PROTOCOL_INVALID",
+                    ReasonCode.MODEL_PROTOCOL_INVALID,
                     "Proposal provider rejected execution feedback",
                 )
         if receipt.status == ExecutionStatus.FAILED:
@@ -769,9 +755,9 @@ class CoreOrchestrator:
                 "execution",
                 "executor",
                 (
-                    "EXECUTOR_ACTION_MISMATCH"
-                    if receipt.error_code == "EXECUTOR_ACTION_MISMATCH"
-                    else "EXECUTOR_ACTION_FAILED"
+                    ReasonCode.EXECUTOR_ACTION_MISMATCH
+                    if receipt.error_code == ReasonCode.EXECUTOR_ACTION_MISMATCH
+                    else ReasonCode.EXECUTOR_ACTION_FAILED
                 ),
                 receipt.error_code or "Executor failed to deliver the approved action",
             )
@@ -782,82 +768,39 @@ class CoreOrchestrator:
         event_kind: AttributionEventKind,
         stage: AttributionStage | str,
         owner: AttributionOwner | str,
-        code: str,
+        code: ReasonCode,
         summary: str,
         *,
         evidence_refs: tuple[str, ...] = (),
         evidence_status: AttributionEvidenceStatus = AttributionEvidenceStatus.CONFIRMED,
     ) -> Attribution:
-        stage = AttributionStage(stage)
-        owner = AttributionOwner(owner)
-        key = (task_id, event_kind.value, code)
-        if key in self._attribution_keys:
-            existing = next(
-                item
-                for item in reversed(self.attributions(task_id))
-                if item.event_kind == event_kind and item.code == code
-            )
-            return existing
-        is_primary = (
-            task_id not in self._primary_attribution
-            and event_kind in {AttributionEventKind.ERROR, AttributionEventKind.INCOMPLETE}
-            and evidence_status != AttributionEvidenceStatus.INSUFFICIENT
-        )
-        attribution = Attribution(
-            attribution_id=new_id("attribution"),
-            event_kind=event_kind,
-            stage=stage,
-            owner=owner,
-            code=code,
-            evidence_status=evidence_status,
-            primary=is_primary,
-            summary=summary,
-            evidence_refs=evidence_refs,
-        )
-        self.store.put(attribution, object_ref=attribution.attribution_id)
-        self._attribution_keys.add(key)
-        if is_primary:
-            self._primary_attribution[task_id] = attribution.attribution_id
-        self._append_event(
+        return self._audit.record_attribution(
             task_id,
-            "attribution.recorded",
-            "attribution",
-            attribution.attribution_id,
-            caused_by=tuple(self._object_events[ref] for ref in evidence_refs if ref in self._object_events),
+            event_kind,
+            stage,
+            owner,
+            code,
+            summary,
+            evidence_refs=evidence_refs,
+            evidence_status=evidence_status,
         )
-        return attribution
 
     def attributions(self, task_id: str) -> tuple[Attribution, ...]:
         self._require_task(task_id)
-        return tuple(
-            self.store.require(event.object_ref)
-            for event in self.ledger.events(task_id)
-            if event.event_type == "attribution.recorded"
-        )
+        return self._audit.attributions(task_id)
 
     def primary_attribution(self, task_id: str) -> Attribution | None:
         self._require_task(task_id)
-        ref = self._primary_attribution.get(task_id)
-        return self.store.require(ref) if ref else None
+        return self._audit.primary_attribution(task_id)
 
     def _append_event(self, task_id: str, event_type: str, epistemic_type: str, object_ref: str, **kwargs):
-        event = self.ledger.append(task_id, event_type, epistemic_type, object_ref, **kwargs)
-        self._object_events[object_ref] = event.event_id
-        return event
+        return self._audit.append(task_id, event_type, epistemic_type, object_ref, **kwargs)
 
     def _causes_for(self, object_ref: str) -> tuple[str, ...]:
-        event_id = self._object_events.get(object_ref)
-        return (event_id,) if event_id else ()
+        return self._audit.causes_for(object_ref)
 
     def _latest_execution_causes(self, task_id: str) -> tuple[str, ...]:
-        selected: list[str] = []
-        for event in reversed(self.ledger.events(task_id)):
-            if event.event_type in {"execution.completed", "snapshot.created"}:
-                if event.event_type not in {item.split(":", 1)[0] for item in selected}:
-                    selected.append(f"{event.event_type}:{event.event_id}")
-                if len(selected) == 2:
-                    break
-        return tuple(item.split(":", 1)[1] for item in reversed(selected))
+        return self._audit.latest_execution_causes(task_id)
 
 
 def response_envelope(
