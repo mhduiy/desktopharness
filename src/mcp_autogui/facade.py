@@ -12,6 +12,7 @@ from .core.models import (
     Point,
     PolicyDecision,
     PolicyStatus,
+    ReasonCode,
     TaskContract,
     TaskLimits,
     TaskPermissions,
@@ -47,7 +48,7 @@ class GuiRunFacade:
                 operation,
                 "failed",
                 error={
-                    "code": "OBJECT_NOT_FOUND",
+                    "code": ReasonCode.OBJECT_NOT_FOUND,
                     "message": str(exc),
                     "retry": False,
                     "required_action": "describe-or-create-task",
@@ -55,14 +56,14 @@ class GuiRunFacade:
             )
         except (ValueError, PermissionError, RuntimeError) as exc:
             message = str(exc)
-            if "SNAPSHOT_UNAVAILABLE" in message:
-                code, retry, required = "SNAPSHOT_UNAVAILABLE", True, "capture-new-frame"
-            elif "provider is unavailable" in message or "CAPABILITY_UNAVAILABLE" in message:
-                code, retry, required = "CAPABILITY_UNAVAILABLE", False, "install-or-configure-provider"
+            if ReasonCode.SNAPSHOT_UNAVAILABLE in message:
+                code, retry, required = ReasonCode.SNAPSHOT_UNAVAILABLE, True, "capture-new-frame"
+            elif "provider is unavailable" in message or ReasonCode.CAPABILITY_UNAVAILABLE in message:
+                code, retry, required = ReasonCode.CAPABILITY_UNAVAILABLE, False, "install-or-configure-provider"
             elif "unsupported gui_run operation" in message:
-                code, retry, required = "UNSUPPORTED_OPERATION", False, "call-describe"
+                code, retry, required = ReasonCode.UNSUPPORTED_OPERATION, False, "call-describe"
             else:
-                code, retry, required = "CONTROLLER_TASK_CONTRACT_INVALID", False, "correct-request"
+                code, retry, required = ReasonCode.CONTROLLER_TASK_CONTRACT_INVALID, False, "correct-request"
             return response_envelope(
                 operation,
                 "failed",
@@ -183,12 +184,12 @@ class GuiRunFacade:
                     else "failed" if value.status in {PolicyStatus.DENY, PolicyStatus.INVALID} else "running"
                 )
                 return self._response(operation, status, ref, diagnostic, resolved_task)
-            if value.error_code == "CONFIRMATION_REQUIRED":
+            if value.error_code == ReasonCode.CONFIRMATION_REQUIRED:
                 status = "needs-confirmation"
             else:
                 status = "running" if value.status.value == "delivered" else "failed"
             response = self._response(operation, status, value.execution_id, diagnostic, resolved_task)
-            if value.error_code and value.error_code != "CONFIRMATION_REQUIRED":
+            if value.error_code and value.error_code != ReasonCode.CONFIRMATION_REQUIRED:
                 recovery = _recovery_for(value.error_code)
                 response["error"] = {
                     "code": value.error_code,
@@ -304,20 +305,20 @@ def _component_id(component: Any, attribute: str) -> str | None:
     return str(getattr(component, attribute, type(component).__name__))
 
 
-def _recovery_for(code: str) -> dict[str, Any]:
+def _recovery_for(code: ReasonCode) -> dict[str, Any]:
     if code in {
-        "COORDINATE_SPACE_CHANGED",
-        "TARGET_DISAPPEARED",
-        "TARGET_IDENTITY_CHANGED",
-        "TARGET_GEOMETRY_INVALIDATED",
-        "TARGET_OCCLUDED",
-        "HIT_TEST_CHANGED",
-        "CURSOR_ORIGIN_CHANGED",
+        ReasonCode.COORDINATE_SPACE_CHANGED,
+        ReasonCode.TARGET_DISAPPEARED,
+        ReasonCode.TARGET_IDENTITY_CHANGED,
+        ReasonCode.TARGET_GEOMETRY_INVALIDATED,
+        ReasonCode.TARGET_OCCLUDED,
+        ReasonCode.HIT_TEST_CHANGED,
+        ReasonCode.CURSOR_ORIGIN_CHANGED,
     }:
         return {"retry": True, "required_action": "capture-new-frame"}
-    if code == "CAPABILITY_UNAVAILABLE":
+    if code == ReasonCode.CAPABILITY_UNAVAILABLE:
         return {"retry": False, "required_action": "install-or-configure-provider"}
-    if code in {"MECHANICAL_PERMISSION_DENIED", "SEMANTIC_POLICY_DENIED"}:
+    if code in {ReasonCode.MECHANICAL_PERMISSION_DENIED, ReasonCode.SEMANTIC_POLICY_DENIED}:
         return {"retry": False, "required_action": "review-task-policy"}
     return {"retry": True, "required_action": "retry-execution"}
 

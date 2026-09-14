@@ -82,6 +82,7 @@ class ReasonCode(StrEnum):
     """Stable protocol reason codes shared by decisions and diagnostics."""
 
     OK = "OK"
+    APPLICATION_LAUNCH_FAILED = "APPLICATION_LAUNCH_FAILED"
     CAPABILITY_UNAVAILABLE = "CAPABILITY_UNAVAILABLE"
     CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"
     CONTROLLER_TASK_CONTRACT_INVALID = "CONTROLLER_TASK_CONTRACT_INVALID"
@@ -189,12 +190,16 @@ class Attribution:
     event_kind: AttributionEventKind
     stage: AttributionStage
     owner: AttributionOwner
-    code: ReasonCode | str
+    code: ReasonCode
     evidence_status: AttributionEvidenceStatus
     primary: bool
     summary: str
     evidence_refs: tuple[str, ...] = ()
     schema_version: str = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.code, ReasonCode):
+            raise TypeError("Attribution.code must be a ReasonCode")
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,12 +427,16 @@ class ProposalGuard:
 class PolicyDecision:
     proposal_id: str
     status: PolicyStatus
-    reason_code: ReasonCode | str
+    reason_code: ReasonCode
     resolved_target: Mapping[str, Any] = field(default_factory=dict)
     guard_ref: str | None = None
     semantic_resolution_ref: str | None = None
     debug_ref: str | None = None
     schema_version: str = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.reason_code, ReasonCode):
+            raise TypeError("PolicyDecision.reason_code must be a ReasonCode")
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,9 +447,13 @@ class ExecutionReceipt:
     executed_action: Action | None
     started_at: str
     finished_at: str
-    error_code: ReasonCode | str | None = None
+    error_code: ReasonCode | None = None
     debug_ref: str | None = None
     schema_version: str = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.error_code is not None and not isinstance(self.error_code, ReasonCode):
+            raise TypeError("ExecutionReceipt.error_code must be a ReasonCode or None")
 
 
 @dataclass(frozen=True, slots=True)

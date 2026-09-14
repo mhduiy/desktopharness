@@ -18,6 +18,7 @@ from ...core.models import (
     ExecutionReceipt,
     ExecutionStatus,
     Point,
+    ReasonCode,
     new_id,
     utc_now,
 )
@@ -63,13 +64,13 @@ class DdeApplicationLauncher:
                 while len(self._results) > 100:
                     self._results.pop(next(iter(self._results)))
             if getattr(result, "returncode", 1) != 0:
-                error = "APPLICATION_LAUNCH_FAILED"
+                error = ReasonCode.APPLICATION_LAUNCH_FAILED
             else:
                 status = ExecutionStatus.DELIVERED
         except FileNotFoundError:
-            error = "CAPABILITY_UNAVAILABLE"
-        except Exception as exc:
-            error = f"APPLICATION_LAUNCH_{type(exc).__name__.upper()}"
+            error = ReasonCode.CAPABILITY_UNAVAILABLE
+        except Exception:
+            error = ReasonCode.APPLICATION_LAUNCH_FAILED
         return ExecutionReceipt(
             execution_id=new_id("execution"),
             proposal_id=proposal.proposal_id,

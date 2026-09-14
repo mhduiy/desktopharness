@@ -11,6 +11,7 @@ from ...core.models import (
     ExecutionReceipt,
     ExecutionStatus,
     Point,
+    ReasonCode,
     new_id,
     utc_now,
 )
@@ -44,7 +45,7 @@ class PyAutoGUIExecutor:
             self._inject(proposal)
         except Exception as exc:
             status = ExecutionStatus.FAILED
-            error = f"EXECUTOR_{type(exc).__name__.upper()}"
+            error = ReasonCode.EXECUTOR_ACTION_FAILED
         return ExecutionReceipt(
             execution_id=new_id("execution"),
             proposal_id=proposal.proposal_id,

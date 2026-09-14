@@ -13,6 +13,7 @@ from mcp_autogui.core.models import (
     Point,
     PolicyDecision,
     PolicyStatus,
+    ReasonCode,
     Rect,
     StackingCapabilities,
     StackingModel,
@@ -242,7 +243,7 @@ class QwenProposalAdapterTests(unittest.TestCase):
             PolicyDecision(
                 proposal_id="proposal-q",
                 status=PolicyStatus.CONFIRM,
-                reason_code="CONFIRMATION_REQUIRED",
+                reason_code=ReasonCode.CONFIRMATION_REQUIRED,
             ),
         )
 

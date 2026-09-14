@@ -28,6 +28,7 @@ from mcp_autogui.core.models import (
     Point,
     PolicyDecision,
     PolicyStatus,
+    ReasonCode,
     Rect,
     SemanticTag,
     StackingCapabilities,
@@ -214,7 +215,7 @@ class ActionGateTests(unittest.TestCase):
         )
         current["target"] = "overlay"
 
-        self.assertEqual(gate.recheck(guard, changed), "HIT_TEST_CHANGED")
+        self.assertEqual(gate.recheck(guard, changed), ReasonCode.HIT_TEST_CHANGED)
 
     def test_qwen_semantic_claim_alone_is_unknown_and_requires_confirmation(self):
         snap = snapshot()
@@ -225,7 +226,7 @@ class ActionGateTests(unittest.TestCase):
 
         self.assertEqual(resolution.status, "unknown")
         self.assertEqual(decision.status, PolicyStatus.CONFIRM)
-        self.assertEqual(decision.reason_code, "CONFIRMATION_REQUIRED")
+        self.assertEqual(decision.reason_code, ReasonCode.CONFIRMATION_REQUIRED)
 
     def test_desktop_role_is_not_an_automatic_click_rejection(self):
         snap = snapshot()
@@ -447,8 +448,25 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(results[0].status, AssertionStatus.UNKNOWN)
         self.assertEqual(state.status, TaskStatus.RUNNING)
         attribution = runtime.attributions("task-1")[0]
-        self.assertEqual(attribution.code, "INSUFFICIENT_GROUND_TRUTH")
+        self.assertEqual(attribution.code, ReasonCode.INSUFFICIENT_GROUND_TRUTH)
         self.assertFalse(attribution.primary)
+
+
+class ReasonCodeTests(unittest.TestCase):
+    def test_protocol_results_reject_unregistered_reason_strings(self):
+        now = utc_now()
+        with self.assertRaises(TypeError):
+            PolicyDecision("proposal-1", PolicyStatus.ALLOW, "OK")
+        with self.assertRaises(TypeError):
+            ExecutionReceipt(
+                "execution-1",
+                "proposal-1",
+                ExecutionStatus.FAILED,
+                None,
+                now,
+                now,
+                error_code="EXECUTOR_UNKNOWN",
+            )
 
 
 class ContextBuilderTests(unittest.TestCase):

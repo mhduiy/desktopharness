@@ -14,6 +14,7 @@ from .models import (
     PolicyDecision,
     PolicyStatus,
     ProposalGuard,
+    ReasonCode,
     SemanticResolution,
     SemanticTag,
     TaskContract,
@@ -131,20 +132,20 @@ class ActionGate:
 
     def _mechanical_check(
         self, proposal: ActionProposal, contract: TaskContract, snapshot: CanonicalSnapshot
-    ) -> tuple[PolicyStatus, str] | None:
+    ) -> tuple[PolicyStatus, ReasonCode] | None:
         action = proposal.action
         if action.type not in contract.permissions.actions:
-            return PolicyStatus.DENY, "MECHANICAL_PERMISSION_DENIED"
+            return PolicyStatus.DENY, ReasonCode.MECHANICAL_PERMISSION_DENIED
         if action.coordinate is not None:
             if action.coordinate_space != snapshot.coordinate_space.id:
-                return PolicyStatus.INVALID, "INVALID_COORDINATE_SPACE"
+                return PolicyStatus.INVALID, ReasonCode.INVALID_COORDINATE_SPACE
             if not snapshot.coordinate_space.bounds.contains(action.coordinate):
-                return PolicyStatus.INVALID, "OUTSIDE_DESKTOP"
+                return PolicyStatus.INVALID, ReasonCode.OUTSIDE_DESKTOP
         return None
 
     def _derive_guard(
         self, proposal: ActionProposal, snapshot: CanonicalSnapshot
-    ) -> tuple[ProposalGuard | None, tuple[PolicyStatus, str] | None]:
+    ) -> tuple[ProposalGuard | None, tuple[PolicyStatus, ReasonCode] | None]:
         action = proposal.action
         target_id: str | None = None
         point: Point | None = None
@@ -154,21 +155,21 @@ class ActionGate:
             point = action.coordinate
             if action.parameters.get("relative"):
                 if snapshot.cursor is None:
-                    return None, (PolicyStatus.INVALID, "CAPABILITY_UNAVAILABLE")
+                    return None, (PolicyStatus.INVALID, ReasonCode.CAPABILITY_UNAVAILABLE)
                 cursor_origin = snapshot.cursor
             if action.type == ActionType.POINTER_DRAG:
                 if snapshot.cursor is None:
-                    return None, (PolicyStatus.INVALID, "CAPABILITY_UNAVAILABLE")
+                    return None, (PolicyStatus.INVALID, ReasonCode.CAPABILITY_UNAVAILABLE)
                 # dragTo-style actions begin at the current cursor. The
                 # destination was already checked against desktop bounds, but
                 # target identity and occlusion belong to the source point.
                 point = snapshot.cursor
                 cursor_origin = snapshot.cursor
             if not self._descriptor.capabilities.stacking.hit_test:
-                return None, (PolicyStatus.INVALID, "CAPABILITY_UNAVAILABLE")
+                return None, (PolicyStatus.INVALID, ReasonCode.CAPABILITY_UNAVAILABLE)
             target_id = self._hit_test(point, snapshot) if point is not None else None
             if target_id is None:
-                return None, (PolicyStatus.INVALID, "TARGET_NOT_FOUND")
+                return None, (PolicyStatus.INVALID, ReasonCode.TARGET_NOT_FOUND)
             require_hit = True
         elif action.type in _KEYBOARD_ACTIONS:
             active = snapshot.active_window()
@@ -176,10 +177,18 @@ class ActionGate:
 
         target = snapshot.window(target_id) if target_id else None
         if action.type in _KEYBOARD_ACTIONS and target is None:
-            reason = "TARGET_NOT_FOUND" if self._descriptor.capabilities.active_window else "CAPABILITY_UNAVAILABLE"
+            reason = (
+                ReasonCode.TARGET_NOT_FOUND
+                if self._descriptor.capabilities.active_window
+                else ReasonCode.CAPABILITY_UNAVAILABLE
+            )
             return None, (PolicyStatus.INVALID, reason)
         if target is not None and target.visible is not True:
-            reason = "TARGET_OCCLUDED" if target.visible is False else "CAPABILITY_UNAVAILABLE"
+            reason = (
+                ReasonCode.TARGET_OCCLUDED
+                if target.visible is False
+                else ReasonCode.CAPABILITY_UNAVAILABLE
+            )
             return None, (PolicyStatus.INVALID, reason)
         identity = {}
         if target is not None:
@@ -213,14 +222,14 @@ class ActionGate:
 
     def _evaluate_policy(
         self, resolution: SemanticResolution, contract: TaskContract
-    ) -> tuple[PolicyStatus, str]:
+    ) -> tuple[PolicyStatus, ReasonCode]:
         independent = [
             tag for tag in resolution.tags if tag.confidence != EvidenceConfidence.MODEL_CLAIM
         ]
         effective = independent or [tag for tag in resolution.tags if tag.tag == "unknown"]
         profile = self.policy_profiles.get(contract.policy_profile)
         if profile is None:
-            return PolicyStatus.INVALID, "SEMANTIC_POLICY_DENIED"
+            return PolicyStatus.INVALID, ReasonCode.SEMANTIC_POLICY_DENIED
         policies = []
         for tag in effective:
             if (
@@ -246,16 +255,16 @@ class ActionGate:
                 )
         result = max(policies or ["confirm"], key=lambda item: _POLICY_PRIORITY.get(item, 1))
         if result == "deny":
-            return PolicyStatus.DENY, "SEMANTIC_POLICY_DENIED"
+            return PolicyStatus.DENY, ReasonCode.SEMANTIC_POLICY_DENIED
         if result == "confirm":
-            return PolicyStatus.CONFIRM, "CONFIRMATION_REQUIRED"
-        return PolicyStatus.ALLOW, "OK"
+            return PolicyStatus.CONFIRM, ReasonCode.CONFIRMATION_REQUIRED
+        return PolicyStatus.ALLOW, ReasonCode.OK
 
     @staticmethod
     def _decision(
         proposal: ActionProposal,
         status: PolicyStatus,
-        reason: str,
+        reason: ReasonCode,
         resolution: SemanticResolution,
     ) -> PolicyDecision:
         return PolicyDecision(
@@ -265,34 +274,34 @@ class ActionGate:
             semantic_resolution_ref=resolution.semantic_resolution_id,
         )
 
-    def recheck(self, guard: ProposalGuard, snapshot: CanonicalSnapshot) -> str | None:
+    def recheck(self, guard: ProposalGuard, snapshot: CanonicalSnapshot) -> ReasonCode | None:
         if guard.coordinate_space_id is not None:
             if snapshot.coordinate_space.id != guard.coordinate_space_id:
-                return "COORDINATE_SPACE_CHANGED"
+                return ReasonCode.COORDINATE_SPACE_CHANGED
             if (
                 guard.coordinate_space_version is not None
                 and snapshot.coordinate_space.version is not None
                 and snapshot.coordinate_space.version != guard.coordinate_space_version
             ):
-                return "COORDINATE_SPACE_CHANGED"
+                return ReasonCode.COORDINATE_SPACE_CHANGED
         target = snapshot.window(guard.target_window_id) if guard.target_window_id else None
         if guard.target_window_id and target is None:
-            return "TARGET_DISAPPEARED"
+            return ReasonCode.TARGET_DISAPPEARED
         if target is not None:
             if guard.required_visible and target.visible is not True:
-                return "TARGET_OCCLUDED"
+                return ReasonCode.TARGET_OCCLUDED
             if guard.required_active and target.active is not True:
-                return "TARGET_IDENTITY_CHANGED"
+                return ReasonCode.TARGET_IDENTITY_CHANGED
             if guard.identity_required:
                 current = {key: getattr(target, key) for key in guard.target_identity}
                 if current != dict(guard.target_identity):
-                    return "TARGET_IDENTITY_CHANGED"
+                    return ReasonCode.TARGET_IDENTITY_CHANGED
             if guard.geometry_policy == "point-must-remain-inside":
                 if guard.hit_test_point is None or not target.geometry.contains(guard.hit_test_point):
-                    return "TARGET_GEOMETRY_INVALIDATED"
+                    return ReasonCode.TARGET_GEOMETRY_INVALIDATED
         if guard.required_hit_window_id is not None and guard.hit_test_point is not None:
             if self._hit_test(guard.hit_test_point, snapshot) != guard.required_hit_window_id:
-                return "HIT_TEST_CHANGED"
+                return ReasonCode.HIT_TEST_CHANGED
         if guard.cursor_origin is not None and snapshot.cursor != guard.cursor_origin:
-            return "CURSOR_ORIGIN_CHANGED"
+            return ReasonCode.CURSOR_ORIGIN_CHANGED
         return None
