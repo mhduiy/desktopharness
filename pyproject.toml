@@ -30,6 +30,7 @@ license-files = ["LICENSE"]
 [project.scripts]
 treeland-autogui-mcp = "mcp_autogui:cli_main"
 autoui-audit = "mcp_autogui.audit_cli:main"
+autoui-smoke = "mcp_autogui.smoke:main"
 
 [tool.hatch.build.targets.wheel]
 packages = [
