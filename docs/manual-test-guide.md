@@ -24,8 +24,8 @@ gui_run(operation="describe")
 真实 Treeland 测试前还应在同一桌面会话执行 `treeland-debug --json tree`。它必须输出非空 JSON；
 否则记录为环境阻塞，不进入任务成功率或模型失败率。
 
-通过标准：返回 `protocol_version=2`，列出当前 compositor、provider、可用
-actions 与 `run` 操作。若 capability 或 provider 缺失，记录为环境阻塞，不能
+通过标准：返回 `protocol_version=2`、`schema_revision=2.1-p3`，列出当前 compositor、provider、可用
+actions 以及推荐的 `run`、`status`、`confirm`、`reset` 操作。若 capability 或 provider 缺失，记录为环境阻塞，不能
 记为模型或执行器失败。
 
 ## 2. 每轮需要保存的证据
@@ -49,9 +49,9 @@ ExecutionReceipt、Evidence、AssertionResult、TaskState、attribution 与恢�
 | V2-02 | 人工提案无副作用 | `observe`、`propose`、`decide`，不执行 | Proposal 只有一个 canonical action；未产生输入副作用。 |
 | V2-03 | Qwen 单步提案 | `propose`（不传 proposal） | Qwen 输出被解析为单个 Proposal；原始输出仅出现在 `debug_ref`。 |
 | V2-04 | 允许动作 | `decide`、`execute`、`evaluate` | 先有 PolicyDecision 和 Guard；回执与任务状态分离。 |
-| V2-05 | 确认动作 | 提交无独立语义证据的输入/编辑提案，再执行 | 首次返回 `needs-confirmation`；只在 `confirmed=true` 后允许继续。 |
+| V2-05 | 确认动作 | 提交无独立语义证据的输入/编辑提案，再 `confirm` | 首次返回 `needs-confirmation`；只有 `confirm` 允许继续。 |
 | V2-06 | 遮挡或目标变化 | 提案后遮挡、移动或关闭目标窗口，再执行 | Guard 拒绝且没有输入注入；返回稳定错误码及 `capture-new-frame` 等恢复建议。 |
-| V2-07 | 证据不足 | 执行一个无法由 compositor 证明业务结果的动作并 evaluate | 不得 `completed`；状态为 `needs-evidence`/`partial`，归因不把 unknown 当失败或成功。 |
+| V2-07 | 证据不足 | 执行一个无法由 compositor 证明业务结果的动作并 evaluate | 不得 `completed`；TaskState 保持 `running`，归因不把 unknown 当失败或成功。 |
 | V2-08 | 任务完成 | 使用 `active_window.app_id` 等可独立验证的 assertion | 所有 required assertions 通过后，且仅由 Reducer 给出 `completed`。 |
 | V2-09 | 有界自动循环 | `gui_run(operation="run", max_iterations=...)` | 每轮遵循单动作事务；确认、拒绝、无进展、预算耗尽或终态时停止并返回原因。 |
 | V2-10 | 诊断与重置 | `status`、`trace`、`reset` | trace 可追溯对象/因果关系；reset 后同一 task 可重新开始。 |
