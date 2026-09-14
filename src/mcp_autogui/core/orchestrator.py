@@ -96,7 +96,6 @@ class CoreOrchestrator:
         self._latest_receipt: dict[str, ExecutionReceipt] = {}
         self._terminal_receipts: dict[str, ExecutionReceipt] = {}
         self._latest_results: dict[str, tuple[AssertionResult, ...]] = {}
-        self._verified_facts: dict[str, tuple[dict[str, Any], ...]] = {}
         self._object_events: dict[str, str] = {}
         self._primary_attribution: dict[str, str] = {}
         self._attribution_keys: set[tuple[str, str, str]] = set()
@@ -170,12 +169,6 @@ class CoreOrchestrator:
             frame=frame,
             recent_receipt=self._latest_receipt.get(task_id),
             assertion_results=self._latest_results.get(task_id, ()),
-            verified_facts=tuple(
-                fact
-                for fact in self._verified_facts.get(task_id, ())
-                if not fact.get("expires_on_environment_change")
-                or fact.get("environment_version") == snapshot.environment_version
-            ),
             spatial_projection={
                 "snapshot_id": snapshot.snapshot_id,
                 "coordinate_space": {
@@ -401,7 +394,7 @@ class CoreOrchestrator:
                     record.evidence_id,
                     snapshot_id=snapshot.snapshot_id,
                     caused_by=self._latest_execution_causes(task_id),
-                    artifact_refs=(record.raw_artifact_ref,) if record.raw_artifact_ref else (),
+                    artifact_refs=(record.artifact_ref,) if record.artifact_ref else (),
                 )
                 evidence_events.append(event.event_id)
                 evidence.append(record)
@@ -433,46 +426,6 @@ class CoreOrchestrator:
             caused_by=tuple(result_events),
             snapshot_id=snapshot.snapshot_id,
         )
-        for result in results:
-            if result.status == AssertionStatus.PASSED:
-                selected_evidence = [
-                    item for item in evidence if item.evidence_id in result.evidence_refs
-                ]
-                accepted_facts = list(self._verified_facts.get(task_id, ()))
-                for item in selected_evidence:
-                    if result.expression.path in item.facts:
-                        accepted_facts.append(
-                            {
-                                "path": result.expression.path,
-                                "value": item.facts[result.expression.path],
-                                "source": item.provider,
-                                "evidence_ref": item.evidence_id,
-                                "freshness": "current",
-                                "environment_version": snapshot.environment_version,
-                                "expires_on_environment_change": item.expires_on_environment_change,
-                            }
-                        )
-                self._verified_facts[task_id] = tuple(accepted_facts[-50:])
-                fact_ref = self.store.put(
-                    {"assertion_id": result.assertion_id, "evidence_refs": result.evidence_refs},
-                    prefix="verified-fact",
-                )
-                result_event = next(
-                    event for event in reversed(self.ledger.events(task_id))
-                    if event.event_type == "assertion.evaluated"
-                    and self.store.require(event.object_ref).assertion_id == result.assertion_id
-                )
-                self._append_event(
-                    task_id,
-                    "verified_fact.accepted",
-                    "verified_fact",
-                    fact_ref,
-                    caused_by=tuple(
-                        [self._object_events[ref] for ref in result.evidence_refs if ref in self._object_events]
-                        + [result_event.event_id]
-                    ),
-                    snapshot_id=snapshot.snapshot_id,
-                )
         if state.status in {TaskStatus.RETRYING, TaskStatus.FAILED}:
             failed_refs = tuple(
                 ref
@@ -656,7 +609,6 @@ class CoreOrchestrator:
         self._latest_frame.pop(task_id, None)
         self._latest_receipt.pop(task_id, None)
         self._latest_results.pop(task_id, None)
-        self._verified_facts.pop(task_id, None)
         self._primary_attribution.pop(task_id, None)
         self._attribution_keys = {
             item for item in self._attribution_keys if item[0] != task_id

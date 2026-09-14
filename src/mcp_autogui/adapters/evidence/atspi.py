@@ -169,8 +169,6 @@ class AtSpiEvidenceProvider:
         self, snapshot: CanonicalSnapshot, subject: Mapping[str, Any], facts: Mapping[str, str]
     ) -> EvidenceRecord:
         return EvidenceRecord(
-            evidence_id=new_id("evidence"), provider=self.provider_id, collected_at=utc_now(),
-            subject=subject, facts=facts, confidence=EvidenceConfidence.DETERMINISTIC,
-            method="atspi-accessibility", valid_at_collection=True,
-            expires_on_environment_change=True, operation_id=new_id("collect"),
+            evidence_id=new_id("evidence"), source=self.provider_id, captured_at=utc_now(),
+            subject=subject, facts=facts, quality=EvidenceConfidence.DETERMINISTIC,
         )

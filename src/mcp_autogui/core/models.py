@@ -446,17 +446,12 @@ class ExecutionReceipt:
 @dataclass(frozen=True, slots=True)
 class EvidenceRecord:
     evidence_id: str
-    provider: str
-    collected_at: str
+    source: str
+    captured_at: str
     subject: Mapping[str, Any]
     facts: Mapping[str, Any]
-    confidence: EvidenceConfidence
-    method: str
-    valid_at_collection: bool | None
-    expires_on_environment_change: bool | None
-    operation_id: str
-    frame_id: str | None = None
-    raw_artifact_ref: str | None = None
+    quality: EvidenceConfidence
+    artifact_ref: str | None = None
     schema_version: str = SCHEMA_VERSION
 
 
@@ -486,7 +481,6 @@ class TaskState:
     retries: int = 0
     completed_assertions: tuple[str, ...] = ()
     failed_assertions: tuple[str, ...] = ()
-    verified_facts: tuple[str, ...] = ()
     schema_version: str = SCHEMA_VERSION
 
 
@@ -515,7 +509,6 @@ class ModelContext:
     goal: str
     current_step: int
     pending_assertions: tuple[str, ...]
-    verified_facts: tuple[Mapping[str, Any], ...]
     recent_execution_receipt: Mapping[str, Any] | None
     assertion_feedback: tuple[Mapping[str, Any], ...]
     constraints: Mapping[str, Any]

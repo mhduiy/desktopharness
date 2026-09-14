@@ -123,7 +123,6 @@ class QwenCUAProposalProvider:
             "goal": context.goal,
             "current_step": context.current_step,
             "pending_assertions": context.pending_assertions,
-            "verified_facts": context.verified_facts,
             "spatial_projection": context.spatial_projection,
             "recent_execution_receipt": context.recent_execution_receipt,
             "assertion_feedback": context.assertion_feedback,

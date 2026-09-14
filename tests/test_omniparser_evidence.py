@@ -61,8 +61,8 @@ class OmniParserEvidenceTests(unittest.TestCase):
             {"name": "save", "role": "button"},
         )
         self.assertEqual(records[1].facts, {"control.name": "Save"})
-        self.assertEqual(records[0].confidence, "probabilistic")
-        self.assertIsNotNone(records[0].raw_artifact_ref)
+        self.assertEqual(records[0].quality, "probabilistic")
+        self.assertIsNotNone(records[0].artifact_ref)
 
     def test_ambiguous_control_locator_emits_no_control_evidence(self):
         class DuplicateResponse(Response):

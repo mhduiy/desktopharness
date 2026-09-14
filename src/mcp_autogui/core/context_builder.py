@@ -22,8 +22,8 @@ from .models import (
 class ContextBuilder:
     STRATEGIES = frozenset({"compact", "recovery"})
     PROFILES = {
-        "compact": {"events": 12, "frames": 1, "facts": 8, "feedback": 4},
-        "recovery": {"events": 24, "frames": 2, "facts": 12, "feedback": 8},
+        "compact": {"events": 12, "frames": 1, "feedback": 4},
+        "recovery": {"events": 24, "frames": 2, "feedback": 8},
     }
 
     def build(
@@ -36,7 +36,6 @@ class ContextBuilder:
         frame: FrameReference | None = None,
         recent_receipt: ExecutionReceipt | None = None,
         assertion_results: Sequence[AssertionResult] = (),
-        verified_facts: Sequence[dict[str, Any]] = (),
         spatial_projection: dict[str, Any] | None = None,
         primary_attribution: dict[str, Any] | None = None,
         strategy: str = "compact",
@@ -72,7 +71,6 @@ class ContextBuilder:
             goal=contract.goal,
             current_step=state.step,
             pending_assertions=pending,
-            verified_facts=tuple(verified_facts[-limits["facts"]:]),
             recent_execution_receipt=(to_primitive(recent_receipt) if recent_receipt else None),
             assertion_feedback=feedback,
             constraints={
@@ -100,7 +98,7 @@ class ContextBuilder:
                 if event.event_type
                 in {
                     "proposal.created", "decision.created", "execution.completed",
-                    "evidence.collected", "assertion.evaluated", "verified_fact.accepted",
+                    "evidence.collected", "assertion.evaluated",
                     "task.transitioned", "attribution.recorded",
                 }
             ]

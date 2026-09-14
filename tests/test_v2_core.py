@@ -240,8 +240,12 @@ class ActionGateTests(unittest.TestCase):
 class EvidenceAndStateTests(unittest.TestCase):
     def record(self, value, confidence, evidence_id):
         return EvidenceRecord(
-            evidence_id, "fixture", utc_now(), {"snapshot_id": "snapshot-1"},
-            {"active_window.app_id": value}, confidence, "fixture", True, False, "collect-1",
+            evidence_id=evidence_id,
+            source="fixture",
+            captured_at=utc_now(),
+            subject={"snapshot_id": "snapshot-1"},
+            facts={"active_window.app_id": value},
+            quality=confidence,
         )
 
     def test_model_claim_cannot_pass_assertion_by_itself(self):

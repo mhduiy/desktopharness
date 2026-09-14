@@ -53,7 +53,7 @@ class AtSpiEvidenceTests(unittest.TestCase):
         )
 
         self.assertEqual(len(records), 1)
-        self.assertEqual(records[0].provider, "atspi-accessibility")
+        self.assertEqual(records[0].source, "atspi-accessibility")
         self.assertEqual(records[0].facts, {"control.role": "push button"})
         self.assertEqual(
             records[0].subject["control_locator"],

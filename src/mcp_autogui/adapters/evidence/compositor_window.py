@@ -82,14 +82,10 @@ class CompositorWindowEvidenceProvider:
     def _record(self, snapshot: CanonicalSnapshot, subject: dict, facts: dict) -> EvidenceRecord:
         return EvidenceRecord(
             evidence_id=new_id("evidence"),
-            provider=self.provider_id,
-            collected_at=utc_now(),
+            source=self.provider_id,
+            captured_at=utc_now(),
             subject=subject,
             facts=facts,
-            confidence=EvidenceConfidence.DETERMINISTIC,
-            method="canonical-compositor-api",
-            valid_at_collection=True,
-            expires_on_environment_change=True,
-            operation_id=new_id("collect"),
-            raw_artifact_ref=snapshot.raw_artifact_ref,
+            quality=EvidenceConfidence.DETERMINISTIC,
+            artifact_ref=snapshot.raw_artifact_ref,
         )

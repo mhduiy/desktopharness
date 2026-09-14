@@ -182,14 +182,10 @@ class OmniParserEvidenceProvider:
     ) -> EvidenceRecord:
         return EvidenceRecord(
             evidence_id=new_id("evidence"),
-            provider=self.provider_id,
-            collected_at=utc_now(),
+            source=self.provider_id,
+            captured_at=utc_now(),
             subject=subject,
             facts=facts,
-            confidence=EvidenceConfidence.PROBABILISTIC,
-            method="omniparser-http",
-            valid_at_collection=True,
-            expires_on_environment_change=True,
-            operation_id=new_id("collect"),
-            raw_artifact_ref=artifact_ref,
+            quality=EvidenceConfidence.PROBABILISTIC,
+            artifact_ref=artifact_ref,
         )

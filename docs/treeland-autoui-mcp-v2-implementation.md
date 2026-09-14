@@ -14,8 +14,8 @@
 | P2 | 完成 | 单一 `ActionExecutor`，backend 路由应用启动/快捷键/输入 |
 | P3 | 完成 | `claimed_intent`、五态 TaskState、compact facade、`confirm` |
 | P4a | 完成 | 新 Ledger 不写重复 `epistemic_type`，旧 CSV 可读 |
-| P4b | 部分完成 | 仅保留 compact/recovery Context；EvidenceRecord 收敛待做 |
-| P5 | 进行中 | `autoui-smoke` 与手册已更新；文档职责已收敛 |
+| P4b | 完成 | Context 仅保留 compact/recovery；EvidenceRecord 已收敛且不缓存 verified facts |
+| P5 | 进行中 | `autoui-smoke` 实际调用只读 `gui_run(describe)`；待真实环境回归 |
 
 ## 运行与预检
 
@@ -25,8 +25,9 @@ uv run autoui-smoke --config config/mcp-autoui.json
 uv run --with pytest pytest -q
 ```
 
-`autoui-smoke` 是只读预检：输出脱敏 effective config、provider 配置状态，并检查
-`treeland-debug --json tree`。缺少桌面工具或无法读取 tree 属于环境阻塞，不计入模型或执行失败。
+`autoui-smoke` 是只读预检：输出脱敏 effective config、provider 配置状态，检查
+`treeland-debug --json tree`，并调用 MCP 的 `gui_run(describe)`。反向代理或 HTTPS 部署可用
+`--mcp-url https://host/mcp` 指定实际入口。缺少桌面工具、无法读取 tree 或 MCP 不可达均属于环境阻塞，不计入模型或执行失败。
 
 ## 代码落点
 
@@ -54,6 +55,5 @@ uv run --with pytest pytest -q
 
 ## 待办
 
-1. 收敛 `EvidenceRecord` 到 source、subject、facts、quality、captured_at 与可选 artifact 引用。
-2. 由 `AssertionResult.excluded_evidence` 统一表达过期、失效和冲突。
-3. 完成真实 Treeland 回归矩阵，并记录环境阻塞与失败归因。
+1. 由 `AssertionResult.excluded_evidence` 统一表达过期、失效和冲突。
+2. 完成真实 Treeland 回归矩阵，并记录环境阻塞与失败归因。

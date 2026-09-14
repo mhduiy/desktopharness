@@ -53,9 +53,9 @@ class AssertionEvaluator:
 
         if assertion.providers:
             provider_rank = {provider: index for index, provider in enumerate(assertion.providers)}
-            known = [item for item in applicable if item[0].provider in provider_rank]
+            known = [item for item in applicable if item[0].source in provider_rank]
             for record, _ in applicable:
-                if record.provider not in provider_rank:
+                if record.source not in provider_rank:
                     excluded.append(ExcludedEvidence(record.evidence_id, "provider is not allowed for assertion"))
             if not known:
                 return self._result(
@@ -65,23 +65,23 @@ class AssertionEvaluator:
                     "No evidence from an allowed provider",
                     excluded,
                 )
-            best = min(provider_rank[item[0].provider] for item in known)
-            selected = [item for item in known if provider_rank[item[0].provider] == best]
+            best = min(provider_rank[item[0].source] for item in known)
+            selected = [item for item in known if provider_rank[item[0].source] == best]
             for record, _ in known:
                 if (record, record.facts[assertion.path]) not in selected:
                     excluded.append(ExcludedEvidence(record.evidence_id, "lower provider priority"))
             applicable = selected
         else:
-            best = max(_CONFIDENCE_RANK[item[0].confidence] for item in applicable)
-            selected = [item for item in applicable if _CONFIDENCE_RANK[item[0].confidence] == best]
+            best = max(_CONFIDENCE_RANK[item[0].quality] for item in applicable)
+            selected = [item for item in applicable if _CONFIDENCE_RANK[item[0].quality] == best]
             for record, _ in applicable:
-                if _CONFIDENCE_RANK[record.confidence] < best:
+                if _CONFIDENCE_RANK[record.quality] < best:
                     excluded.append(ExcludedEvidence(record.evidence_id, "lower confidence source"))
             applicable = selected
 
         # A model re-observation is useful diagnostic evidence, but never an
         # independent task-success source by itself.
-        if all(item[0].confidence == EvidenceConfidence.MODEL_CLAIM for item in applicable):
+        if all(item[0].quality == EvidenceConfidence.MODEL_CLAIM for item in applicable):
             return self._result(
                 assertion,
                 AssertionStatus.UNKNOWN,
@@ -125,14 +125,12 @@ class AssertionEvaluator:
     ) -> str | None:
         if assertion.path not in record.facts:
             return "fact path not provided"
-        if record.valid_at_collection is not True:
-            return "evidence was not valid at collection"
         for key, expected in assertion.subject.items():
             if record.subject.get(key) != expected:
                 return f"subject mismatch: {key}"
         if (
             current_snapshot is not None
-            and record.expires_on_environment_change is True
+            and record.subject.get("environment_version") is not None
         ):
             evidence_environment = record.subject.get("environment_version")
             expired = (

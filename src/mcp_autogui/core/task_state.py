@@ -56,7 +56,6 @@ class TaskStateReducer:
         else:
             status = TaskStatus.RUNNING
             retries = state.retries
-        verified = tuple(f"assertion:{item}" for item in completed)
         return TaskState(
             task_id=contract.task_id,
             status=status,
@@ -64,5 +63,4 @@ class TaskStateReducer:
             retries=retries,
             completed_assertions=completed,
             failed_assertions=failed,
-            verified_facts=verified,
         )
