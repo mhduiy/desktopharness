@@ -114,7 +114,6 @@ class ReasonCode(StrEnum):
 
 class ExecutionStatus(StrEnum):
     DELIVERED = "delivered"
-    REJECTED = "rejected"
     FAILED = "failed"
     UNKNOWN = "unknown"
 

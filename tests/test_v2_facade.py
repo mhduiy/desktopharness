@@ -11,6 +11,8 @@ from mcp_autogui.core.models import (
     FrameReference,
     OutputFact,
     Point,
+    PolicyDecision,
+    PolicyStatus,
     Rect,
     StackingCapabilities,
     StackingModel,
@@ -102,7 +104,7 @@ class FacadeTests(unittest.TestCase):
     def test_describe_exposes_capabilities_separately_from_task_permissions(self):
         response = self.facade.handle("describe", diagnostic=True)
         self.assertEqual(response["protocol_version"], 2)
-        self.assertEqual(response["object"]["schema_revision"], "2.1-p0")
+        self.assertEqual(response["object"]["schema_revision"], "2.1-p1")
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
         self.assertIn("pointer.click", response["object"]["actions"])
 
@@ -143,6 +145,7 @@ class FacadeTests(unittest.TestCase):
             "execute", task_id="portable-task", proposal_id=proposed["object_ref"], confirmed=True
         )
         self.assertEqual(pending["status"], "needs-confirmation")
+        self.assertTrue(pending["object_ref"].startswith("policy-decision-"))
         self.assertEqual(delivered["status"], "needs-evidence")
         self.assertEqual(repeated["object_ref"], delivered["object_ref"])
 
@@ -202,6 +205,29 @@ class QwenProposalAdapterTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "exactly one action"):
             provider.propose(context)
+
+    def test_qwen_decision_feedback_clears_pending_without_a_receipt(self):
+        calls = []
+
+        class FeedbackBackend:
+            def record_execution(self, *args, **kwargs):
+                calls.append((args, kwargs))
+                return {"ok": True}
+
+        _, store = self.context_and_store()
+        provider = QwenCUAProposalProvider(FeedbackBackend(), store)
+        provider.record_decision(
+            "task-q",
+            PolicyDecision(
+                proposal_id="proposal-q",
+                status=PolicyStatus.CONFIRM,
+                reason_code="CONFIRMATION_REQUIRED",
+            ),
+        )
+
+        self.assertEqual(calls[0][0], ("task-q",))
+        self.assertEqual(calls[0][1]["status"], "partial")
+        self.assertEqual(calls[0][1]["execution"]["status"], "confirm")
 
 
 if __name__ == "__main__":

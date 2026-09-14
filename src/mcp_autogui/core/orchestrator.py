@@ -92,6 +92,7 @@ class CoreOrchestrator:
         self._latest_frame: dict[str, Any] = {}
         self._proposal_task: dict[str, str] = {}
         self._provider_proposals: set[str] = set()
+        self._provider_finalized: set[str] = set()
         self._decisions: dict[str, PolicyDecision] = {}
         self._decision_refs: dict[str, str] = {}
         self._guards: dict[str, ProposalGuard] = {}
@@ -271,18 +272,19 @@ class CoreOrchestrator:
         if guard is not None:
             self._guards[guard.guard_id] = guard
             self.store.put(guard, object_ref=guard.guard_id)
-        decision_ref = self.store.put(decision, prefix="policy-decision")
-        self._decisions[proposal_id] = decision
-        self._decision_refs[proposal_id] = decision_ref
-        self._append_event(
+        self._store_decision(
             task_id,
-            "decision.created",
-            "policy_decision",
-            decision_ref,
+            proposal,
+            decision,
             caused_by=self._causes_for(proposal_id),
-            snapshot_id=snapshot.snapshot_id if isinstance(snapshot, CanonicalSnapshot) else proposal.based_on_snapshot,
-            debug_ref=decision.debug_ref,
+            snapshot_id=(
+                snapshot.snapshot_id
+                if isinstance(snapshot, CanonicalSnapshot)
+                else proposal.based_on_snapshot
+            ),
         )
+        if decision.status != PolicyStatus.ALLOW:
+            self._record_non_execution(task_id, proposal, decision)
         return decision
 
     def execute(
@@ -291,7 +293,7 @@ class CoreOrchestrator:
         *,
         confirmed: bool = False,
         current_snapshot: CanonicalSnapshot | None = None,
-    ) -> ExecutionReceipt:
+    ) -> PolicyDecision | ExecutionReceipt:
         # Observation, guard recheck, and input injection are one critical
         # section across tasks; otherwise another task could alter the desktop
         # between validation and the side effect.
@@ -306,7 +308,7 @@ class CoreOrchestrator:
         *,
         confirmed: bool = False,
         current_snapshot: CanonicalSnapshot | None = None,
-    ) -> ExecutionReceipt:
+    ) -> PolicyDecision | ExecutionReceipt:
         task_id = self._proposal_task.get(proposal_id)
         if task_id is None:
             raise KeyError(proposal_id)
@@ -318,27 +320,16 @@ class CoreOrchestrator:
         if decision.status == PolicyStatus.CONFIRM and confirmed:
             previous_ref = self._decision_refs[proposal_id]
             decision = replace(decision, status=PolicyStatus.ALLOW, reason_code="USER_CONFIRMED")
-            decision_ref = self.store.put(decision, prefix="policy-decision")
-            self._decisions[proposal_id] = decision
-            self._decision_refs[proposal_id] = decision_ref
-            self._append_event(
+            self._store_decision(
                 task_id,
-                "decision.created",
-                "policy_decision",
-                decision_ref,
+                proposal,
+                decision,
                 caused_by=self._causes_for(previous_ref),
                 snapshot_id=proposal.based_on_snapshot,
             )
-        permitted = decision.status == PolicyStatus.ALLOW
-        if not permitted:
-            pending_confirmation = decision.status == PolicyStatus.CONFIRM
-            return self._rejected_receipt(
-                task_id,
-                proposal,
-                decision.reason_code,
-                terminal=not pending_confirmation,
-                notify_provider=not pending_confirmation,
-            )
+        if decision.status != PolicyStatus.ALLOW:
+            self._record_non_execution(task_id, proposal, decision)
+            return decision
 
         latest = (
             self.adopt_snapshot(task_id, current_snapshot)
@@ -349,11 +340,33 @@ class CoreOrchestrator:
         if guard is not None:
             guard_error = self.gate.recheck(guard, latest)
             if guard_error is not None:
-                return self._rejected_receipt(task_id, proposal, guard_error)
+                stale = replace(decision, status=PolicyStatus.STALE, reason_code=guard_error)
+                self._store_decision(
+                    task_id,
+                    proposal,
+                    stale,
+                    caused_by=self._causes_for(self._decision_refs[proposal_id]),
+                    snapshot_id=latest.snapshot_id,
+                )
+                self._record_non_execution(task_id, proposal, stale)
+                return stale
 
         if proposal.action.type == ActionType.APPLICATION_LAUNCH:
             if self.application_launcher is None:
-                return self._rejected_receipt(task_id, proposal, "CAPABILITY_UNAVAILABLE")
+                unavailable = replace(
+                    decision,
+                    status=PolicyStatus.INVALID,
+                    reason_code="CAPABILITY_UNAVAILABLE",
+                )
+                self._store_decision(
+                    task_id,
+                    proposal,
+                    unavailable,
+                    caused_by=self._causes_for(self._decision_refs[proposal_id]),
+                    snapshot_id=latest.snapshot_id,
+                )
+                self._record_non_execution(task_id, proposal, unavailable)
+                return unavailable
             receipt = self.application_launcher.launch(proposal)
         else:
             receipt = self.executor.execute(proposal)
@@ -519,7 +532,15 @@ class CoreOrchestrator:
             return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._states[task_id]}
         if decision.status == PolicyStatus.CONFIRM and not confirmed:
             return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._states[task_id]}
-        receipt = self.execute(proposal.proposal_id, confirmed=confirmed)
+        execution = self.execute(proposal.proposal_id, confirmed=confirmed)
+        if isinstance(execution, PolicyDecision):
+            return {
+                "proposal": proposal,
+                "decision": execution,
+                "receipt": None,
+                "state": self._states[task_id],
+            }
+        receipt = execution
         evidence, results, state = self.evaluate(task_id)
         return {
             "proposal": proposal,
@@ -663,6 +684,7 @@ class CoreOrchestrator:
             if owner == task_id:
                 self._proposal_task.pop(proposal_id, None)
                 self._provider_proposals.discard(proposal_id)
+                self._provider_finalized.discard(proposal_id)
                 self._decisions.pop(proposal_id, None)
                 self._decision_refs.pop(proposal_id, None)
                 self._terminal_receipts.pop(proposal_id, None)
@@ -673,28 +695,39 @@ class CoreOrchestrator:
         except KeyError as exc:
             raise KeyError(f"unknown task: {task_id}") from exc
 
-    def _rejected_receipt(
+    def _store_decision(
         self,
         task_id: str,
         proposal: ActionProposal,
-        reason_code: str,
+        decision: PolicyDecision,
         *,
-        terminal: bool = True,
-        notify_provider: bool = True,
-    ) -> ExecutionReceipt:
-        now = utc_now()
-        receipt = ExecutionReceipt(
-            execution_id=new_id("execution"),
-            proposal_id=proposal.proposal_id,
-            status=ExecutionStatus.REJECTED,
-            executed_action=None,
-            started_at=now,
-            finished_at=now,
-            error_code=reason_code,
+        caused_by: tuple[str, ...],
+        snapshot_id: str,
+    ) -> str:
+        decision_ref = self.store.put(decision, prefix="policy-decision")
+        self._decisions[proposal.proposal_id] = decision
+        self._decision_refs[proposal.proposal_id] = decision_ref
+        self._append_event(
+            task_id,
+            "decision.created",
+            "policy_decision",
+            decision_ref,
+            caused_by=caused_by,
+            snapshot_id=snapshot_id,
+            debug_ref=decision.debug_ref,
         )
-        self._record_receipt(
-            task_id, receipt, terminal=terminal, notify_provider=notify_provider
-        )
+        return decision_ref
+
+    def _record_non_execution(
+        self,
+        task_id: str,
+        proposal: ActionProposal,
+        decision: PolicyDecision,
+    ) -> None:
+        if proposal.proposal_id not in self._provider_finalized:
+            self._record_provider_decision(task_id, decision)
+            self._provider_finalized.add(proposal.proposal_id)
+        reason_code = decision.reason_code
         environment_codes = {
             "COORDINATE_SPACE_CHANGED",
             "TARGET_DISAPPEARED",
@@ -722,7 +755,26 @@ class CoreOrchestrator:
                 "POLICY_DENIED" if reason_code != "CONFIRMATION_REQUIRED" else "CONFIRMATION_REQUIRED",
                 "Controller policy did not authorize automatic execution",
             )
-        return receipt
+
+    def _record_provider_decision(self, task_id: str, decision: PolicyDecision) -> None:
+        recorder = getattr(self.proposal_provider, "record_decision", None)
+        proposal_owner = self._proposal_task.get(decision.proposal_id)
+        if (
+            callable(recorder)
+            and proposal_owner == task_id
+            and decision.proposal_id in self._provider_proposals
+        ):
+            try:
+                recorder(task_id, decision)
+            except Exception:
+                self._record_attribution(
+                    task_id,
+                    AttributionEventKind.ERROR,
+                    "protocol",
+                    "unknown",
+                    "MODEL_PROTOCOL_INVALID",
+                    "Proposal provider rejected decision feedback",
+                )
 
     def _record_receipt(
         self,
@@ -750,6 +802,7 @@ class CoreOrchestrator:
             and callable(recorder)
             and proposal_owner == task_id
             and receipt.proposal_id in self._provider_proposals
+            and receipt.proposal_id not in self._provider_finalized
         ):
             try:
                 recorder(task_id, receipt)

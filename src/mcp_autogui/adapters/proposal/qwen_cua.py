@@ -89,7 +89,6 @@ class QwenCUAProposalProvider:
         else:
             status = {
                 "delivered": "success",
-                "rejected": "rejected",
                 "failed": "error",
                 "unknown": "partial",
             }[receipt.status.value]
@@ -99,6 +98,19 @@ class QwenCUAProposalProvider:
             status=status,
             execution=to_primitive(receipt),
             reason=reason,
+        )
+
+    def record_decision(self, task_id: str, decision: Any) -> object:
+        """Resolve the model pending proposal without inventing a receipt."""
+        recorder = getattr(self._backend, "record_execution", None)
+        if not callable(recorder):
+            return {"ok": False, "message": "decision feedback unsupported"}
+        status = "partial" if decision.status.value == "confirm" else "rejected"
+        return recorder(
+            task_id,
+            status=status,
+            execution=to_primitive(decision),
+            reason=decision.reason_code,
         )
 
     def reset(self, task_id: str) -> None:

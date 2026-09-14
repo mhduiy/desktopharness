@@ -26,6 +26,7 @@ from mcp_autogui.core.models import (
     ExecutionStatus,
     OutputFact,
     Point,
+    PolicyDecision,
     PolicyStatus,
     Rect,
     SemanticTag,
@@ -287,6 +288,78 @@ class EvidenceAndStateTests(unittest.TestCase):
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_denied_or_stale_actions_do_not_create_receipts_or_call_executor(self):
+        class CountingExecutor(FakeExecutor):
+            def __init__(self):
+                self.calls = 0
+
+            def execute(self, proposal):
+                self.calls += 1
+                return super().execute(proposal)
+
+        executor = CountingExecutor()
+        runtime = CoreOrchestrator(FakeCompositor([snapshot()]), executor)
+        runtime.policy_providers = (
+            type(
+                "Policy",
+                (),
+                {
+                    "independent_tags": lambda _self, proposal, _contract: [
+                        SemanticTag(
+                            proposal.semantic_intent or "unknown",
+                            "fixture",
+                            None,
+                            EvidenceConfidence.DETERMINISTIC,
+                        )
+                    ]
+                },
+            )(),
+        )
+        runtime.register_task(contract())
+        observed = runtime.observe("task-1")
+        denied = click_proposal(observed.snapshot_id, semantic="destructive")
+        runtime.submit_proposal("task-1", denied)
+
+        result = runtime.execute(denied.proposal_id)
+
+        self.assertIsInstance(result, PolicyDecision)
+        self.assertEqual(result.status, PolicyStatus.DENY)
+        self.assertEqual(executor.calls, 0)
+        self.assertFalse(any(event.event_type == "execution.completed" for event in runtime.ledger.events("task-1")))
+
+        executor = CountingExecutor()
+        runtime = CoreOrchestrator(
+            FakeCompositor([snapshot(), snapshot(snapshot_id="snapshot-2", target="overlay")]),
+            executor,
+        )
+        runtime.policy_providers = (
+            type(
+                "Policy",
+                (),
+                {
+                    "independent_tags": lambda _self, _proposal, _contract: [
+                        SemanticTag(
+                            "navigation",
+                            "fixture",
+                            None,
+                            EvidenceConfidence.DETERMINISTIC,
+                        )
+                    ]
+                },
+            )(),
+        )
+        runtime.register_task(contract())
+        observed = runtime.observe("task-1")
+        stale = click_proposal(observed.snapshot_id)
+        runtime.submit_proposal("task-1", stale)
+
+        result = runtime.execute(stale.proposal_id)
+
+        self.assertIsInstance(result, PolicyDecision)
+        self.assertEqual(result.status, PolicyStatus.STALE)
+        self.assertEqual(executor.calls, 0)
+        self.assertFalse(any(event.event_type == "execution.completed" for event in runtime.ledger.events("task-1")))
+
     def test_reset_preserves_audit_history_and_appends_reset_event(self):
         runtime = CoreOrchestrator(FakeCompositor([snapshot()]), FakeExecutor())
         runtime.register_task(contract())

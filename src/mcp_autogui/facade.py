@@ -10,6 +10,7 @@ from .core.models import (
     ActionType,
     AssertionSpec,
     Point,
+    PolicyDecision,
     PolicyStatus,
     TaskContract,
     TaskLimits,
@@ -88,7 +89,7 @@ class GuiRunFacade:
             description = {
                 "protocol_version": 2,
                 "schema_version": "1",
-                "schema_revision": "2.1-p0",
+                "schema_revision": "2.1-p1",
                 "adapter": to_primitive(self.runtime.compositor.descriptor),
                 "capabilities": {
                     "pointer": self.runtime.executor is not None,
@@ -174,10 +175,18 @@ class GuiRunFacade:
             return self._response(operation, status, ref, diagnostic, resolved_task)
         if operation == "execute":
             value = self.runtime.execute(proposal_id.strip(), confirmed=confirmed)
+            if isinstance(value, PolicyDecision):
+                ref = self._last_object_ref(resolved_task, "decision.created")
+                status = (
+                    "needs-confirmation"
+                    if value.status == PolicyStatus.CONFIRM
+                    else "refused"
+                )
+                return self._response(operation, status, ref, diagnostic, resolved_task)
             if value.error_code == "CONFIRMATION_REQUIRED":
                 status = "needs-confirmation"
             else:
-                status = "needs-evidence" if value.status.value == "delivered" else "refused" if value.status.value == "rejected" else "failed"
+                status = "needs-evidence" if value.status.value == "delivered" else "failed"
             response = self._response(operation, status, value.execution_id, diagnostic, resolved_task)
             if value.error_code and value.error_code != "CONFIRMATION_REQUIRED":
                 recovery = _recovery_for(value.error_code)
