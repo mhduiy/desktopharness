@@ -34,6 +34,7 @@ class AuditPersistenceTests(unittest.TestCase):
             self.assertEqual(reopened_store.require("object-1"), {"answer": 42})
             self.assertEqual(reopened_ledger.events("task-1"), (event,))
             self.assertEqual(os.stat(reopened_ledger.path).st_mode & 0o077, 0)
+            self.assertNotIn("epistemic_type", reopened_ledger.path.read_text(encoding="utf-8").splitlines()[0])
 
     def test_large_and_binary_artifacts_are_available_after_restart(self):
         with tempfile.TemporaryDirectory() as directory:

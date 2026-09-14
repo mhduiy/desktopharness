@@ -9,6 +9,9 @@ from .ledger import CsvAuditEventLedger, EventLedger
 from .store import JsonAuditObjectStore, ObjectStore
 
 
+AuditTrail = tuple[ObjectStore, EventLedger]
+
+
 def audit_components_from_environment() -> tuple[ObjectStore, EventLedger]:
     directory = os.environ.get("GUI_AUDIT_DIR", "").strip()
     return _audit_components(

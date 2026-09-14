@@ -60,7 +60,7 @@ class CsvAuditEventLedger(EventLedger):
     """A private, append-oriented CSV projection of the v2 event ledger."""
 
     FIELDS = (
-        "event_id", "task_id", "sequence", "occurred_at", "event_type", "epistemic_type",
+        "event_id", "task_id", "sequence", "occurred_at", "event_type",
         "object_ref", "caused_by", "snapshot_id", "artifact_refs", "debug_ref", "schema_version",
     )
 
@@ -87,7 +87,7 @@ class CsvAuditEventLedger(EventLedger):
                 event = LedgerEvent(
                     event_id=row["event_id"], task_id=row["task_id"], sequence=int(row["sequence"]),
                     occurred_at=row["occurred_at"], event_type=row["event_type"],
-                    epistemic_type=row["epistemic_type"], object_ref=row["object_ref"],
+                    epistemic_type=row.get("epistemic_type") or _event_object_type(row["event_type"]), object_ref=row["object_ref"],
                     caused_by=tuple(json.loads(row["caused_by"])), snapshot_id=row["snapshot_id"] or None,
                     artifact_refs=tuple(json.loads(row["artifact_refs"])), debug_ref=row["debug_ref"] or None,
                     schema_version=row["schema_version"],
@@ -122,8 +122,24 @@ class CsvAuditEventLedger(EventLedger):
         return {
             "event_id": event.event_id, "task_id": event.task_id, "sequence": event.sequence,
             "occurred_at": event.occurred_at, "event_type": event.event_type,
-            "epistemic_type": event.epistemic_type, "object_ref": event.object_ref,
+            "object_ref": event.object_ref,
             "caused_by": json.dumps(event.caused_by), "snapshot_id": event.snapshot_id or "",
             "artifact_refs": json.dumps(event.artifact_refs), "debug_ref": event.debug_ref or "",
             "schema_version": event.schema_version,
         }
+
+
+def _event_object_type(event_type: str) -> str:
+    """Normalize legacy audit rows without persisting duplicate type metadata."""
+    return {
+        "task.created": "controller_contract",
+        "snapshot.created": "verified_fact",
+        "frame.captured": "evidence",
+        "proposal.created": "action_proposal",
+        "decision.created": "policy_decision",
+        "execution.completed": "execution_receipt",
+        "evidence.collected": "evidence",
+        "assertion.evaluated": "assertion_result",
+        "task.transitioned": "state_transition",
+        "attribution.recorded": "attribution",
+    }.get(event_type, "audit_event")
