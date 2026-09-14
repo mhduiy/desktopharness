@@ -27,8 +27,8 @@ class AuditRecorder:
         self._primary_attribution: dict[str, str] = {}
         self._attribution_keys: set[tuple[str, str, ReasonCode]] = set()
 
-    def append(self, task_id: str, event_type: str, epistemic_type: str, object_ref: str, **kwargs: Any):
-        event = self.ledger.append(task_id, event_type, epistemic_type, object_ref, **kwargs)
+    def append(self, task_id: str, event_type: str, object_ref: str, **kwargs: Any):
+        event = self.ledger.append(task_id, event_type, object_ref, **kwargs)
         self._object_events[object_ref] = event.event_id
         return event
 
@@ -90,7 +90,6 @@ class AuditRecorder:
         self.append(
             task_id,
             "attribution.recorded",
-            "attribution",
             attribution.attribution_id,
             caused_by=tuple(
                 self._object_events[reference]

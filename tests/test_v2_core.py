@@ -433,8 +433,8 @@ class OrchestratorTests(unittest.TestCase):
 
     def test_ledger_is_append_only_and_sequences_per_task(self):
         ledger = EventLedger()
-        one = ledger.append("t", "proposal.created", "action_proposal", "p-1")
-        two = ledger.append("t", "decision.created", "policy_decision", "d-1", caused_by=(one.event_id,))
+        one = ledger.append("t", "proposal.created", "p-1")
+        two = ledger.append("t", "decision.created", "d-1", caused_by=(one.event_id,))
         self.assertEqual((one.sequence, two.sequence), (1, 2))
         self.assertEqual(ledger.events("t")[0].object_ref, "p-1")
 
@@ -473,8 +473,8 @@ class ContextBuilderTests(unittest.TestCase):
     def test_only_compact_and_recovery_context_projections_are_supported(self):
         ledger = EventLedger()
         for index in range(5):
-            ledger.append("task-1", "frame.captured", "evidence", f"frame-{index}")
-            ledger.append("task-1", "proposal.created", "action_proposal", f"proposal-{index}")
+            ledger.append("task-1", "frame.captured", f"frame-{index}")
+            ledger.append("task-1", "proposal.created", f"proposal-{index}")
         builder = ContextBuilder()
         task = contract()
         compact = builder.build(

@@ -23,9 +23,7 @@ class AuditCliTests(unittest.TestCase):
             store = JsonAuditObjectStore(directory)
             store.put({"goal": "open editor"}, object_ref="contract-1")
             store.put(b"png-data", object_ref="image-1")
-            CsvAuditEventLedger(directory).append(
-                "task-1", "task.created", "controller_contract", "contract-1"
-            )
+            CsvAuditEventLedger(directory).append("task-1", "task.created", "contract-1")
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 summary(Path(directory))
@@ -47,7 +45,7 @@ class AuditCliTests(unittest.TestCase):
             store = JsonAuditObjectStore(directory)
             store.put({"event": "preserved"}, object_ref="object-1")
             store.put(b"raw-artifact", object_ref="artifact-1")
-            CsvAuditEventLedger(directory).append("task-1", "event", "evidence", "object-1")
+            CsvAuditEventLedger(directory).append("task-1", "event", "object-1")
             archive = create_archive(Path(directory), f"{destination}/audit-copy")
 
             self.assertTrue(archive.name.endswith(".tar.gz"))

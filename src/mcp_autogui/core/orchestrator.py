@@ -45,6 +45,7 @@ from .models import (
 from .store import ObjectStore
 from .task_repository import TaskRepository
 from .task_state import TaskStateReducer
+from .transaction_recorder import TransactionRecorder
 
 
 class CoreOrchestrator:
@@ -85,6 +86,7 @@ class CoreOrchestrator:
         self.reducer = TaskStateReducer()
         self.context_builder = ContextBuilder()
         self._tasks = TaskRepository()
+        self._transactions = TransactionRecorder(self._tasks, self._audit)
         self._execution_lock = RLock()
 
     def register_task(self, contract: TaskContract) -> TaskState:
@@ -106,7 +108,7 @@ class CoreOrchestrator:
         self._tasks.contracts[contract.task_id] = contract
         self._tasks.states[contract.task_id] = TaskState(task_id=contract.task_id)
         contract_ref = self.store.put(contract, prefix="task-contract")
-        self._append_event(contract.task_id, "task.created", "controller_contract", contract_ref)
+        self._append_event(contract.task_id, "task.created", contract_ref)
         return self._tasks.states[contract.task_id]
 
     def observe(self, task_id: str) -> CanonicalSnapshot:
@@ -121,7 +123,6 @@ class CoreOrchestrator:
         self._append_event(
             task_id,
             "snapshot.created",
-            "verified_fact",
             snapshot.snapshot_id,
             snapshot_id=snapshot.snapshot_id,
             artifact_refs=(snapshot.raw_artifact_ref,) if snapshot.raw_artifact_ref else (),
@@ -141,7 +142,6 @@ class CoreOrchestrator:
             self._append_event(
                 task_id,
                 "frame.captured",
-                "evidence",
                 frame.frame_id,
                 caused_by=self._causes_for(snapshot.snapshot_id),
                 snapshot_id=snapshot.snapshot_id,
@@ -204,7 +204,6 @@ class CoreOrchestrator:
             diagnostic = self._append_event(
                 task_id,
                 "model_diagnostic.recorded",
-                "model_claim",
                 proposal.debug_ref,
                 caused_by=causal_events,
                 snapshot_id=proposal.based_on_snapshot,
@@ -214,7 +213,6 @@ class CoreOrchestrator:
         self._append_event(
             task_id,
             "proposal.created",
-            "action_proposal",
             proposal.proposal_id,
             caused_by=causal_events,
             snapshot_id=proposal.based_on_snapshot,
@@ -378,7 +376,6 @@ class CoreOrchestrator:
                 event = self._append_event(
                     task_id,
                     "evidence.collected",
-                    "evidence",
                     record.evidence_id,
                     snapshot_id=snapshot.snapshot_id,
                     caused_by=self._latest_execution_causes(task_id),
@@ -396,23 +393,15 @@ class CoreOrchestrator:
             event = self._append_event(
                 task_id,
                 "assertion.evaluated",
-                "assertion_result",
                 result_ref,
                 caused_by=tuple(evidence_events),
                 snapshot_id=snapshot.snapshot_id,
             )
             result_events.append(event.event_id)
         state = self.reducer.reduce(contract, self._tasks.states[task_id], results)
-        self._tasks.states[task_id] = state
         self._tasks.latest_results[task_id] = results
-        state_ref = self.store.put(state, prefix="task-state")
-        self._append_event(
-            task_id,
-            "task.transitioned",
-            "state_transition",
-            state_ref,
-            caused_by=tuple(result_events),
-            snapshot_id=snapshot.snapshot_id,
+        self._transactions.state(
+            task_id, state, caused_by=tuple(result_events), snapshot_id=snapshot.snapshot_id
         )
         if state.status in {TaskStatus.RETRYING, TaskStatus.FAILED}:
             failed_refs = tuple(
@@ -591,7 +580,6 @@ class CoreOrchestrator:
         self._append_event(
             task_id,
             "task.reset",
-            "state_transition",
             reset_ref,
             caused_by=tuple(event.event_id for event in self.ledger.events(task_id)[-1:]),
         )
@@ -613,19 +601,9 @@ class CoreOrchestrator:
         caused_by: tuple[str, ...],
         snapshot_id: str,
     ) -> str:
-        decision_ref = self.store.put(decision, prefix="policy-decision")
-        self._tasks.decisions[proposal.proposal_id] = decision
-        self._tasks.decision_refs[proposal.proposal_id] = decision_ref
-        self._append_event(
-            task_id,
-            "decision.created",
-            "policy_decision",
-            decision_ref,
-            caused_by=caused_by,
-            snapshot_id=snapshot_id,
-            debug_ref=decision.debug_ref,
+        return self._transactions.decision(
+            task_id, proposal, decision, caused_by=caused_by, snapshot_id=snapshot_id
         )
-        return decision_ref
 
     def _record_non_execution(
         self,
@@ -713,18 +691,13 @@ class CoreOrchestrator:
         terminal: bool = True,
         notify_provider: bool = True,
     ) -> None:
-        self._tasks.latest_receipts[task_id] = receipt
-        if terminal:
-            self._tasks.terminal_receipts[receipt.proposal_id] = receipt
-        self.store.put(receipt, object_ref=receipt.execution_id)
-        self._append_event(
+        self._transactions.receipt(
             task_id,
-            "execution.completed",
-            "execution_receipt",
-            receipt.execution_id,
+            receipt,
             caused_by=self._causes_for(
                 self._tasks.decision_refs.get(receipt.proposal_id, receipt.proposal_id)
             ),
+            terminal=terminal,
         )
         recorder = getattr(self.proposal_provider, "record_execution", None)
         proposal_owner = self._tasks.proposal_tasks.get(receipt.proposal_id)
@@ -793,8 +766,8 @@ class CoreOrchestrator:
         self._require_task(task_id)
         return self._audit.primary_attribution(task_id)
 
-    def _append_event(self, task_id: str, event_type: str, epistemic_type: str, object_ref: str, **kwargs):
-        return self._audit.append(task_id, event_type, epistemic_type, object_ref, **kwargs)
+    def _append_event(self, task_id: str, event_type: str, object_ref: str, **kwargs):
+        return self._audit.append(task_id, event_type, object_ref, **kwargs)
 
     def _causes_for(self, object_ref: str) -> tuple[str, ...]:
         return self._audit.causes_for(object_ref)

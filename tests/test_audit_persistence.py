@@ -27,7 +27,7 @@ class AuditPersistenceTests(unittest.TestCase):
             store = JsonAuditObjectStore(directory)
             store.put({"answer": 42}, object_ref="object-1")
             ledger = CsvAuditEventLedger(directory)
-            event = ledger.append("task-1", "task.created", "controller_contract", "object-1")
+            event = ledger.append("task-1", "task.created", "object-1")
 
             reopened_store = JsonAuditObjectStore(directory)
             reopened_ledger = CsvAuditEventLedger(directory)

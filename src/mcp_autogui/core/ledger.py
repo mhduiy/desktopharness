@@ -22,7 +22,6 @@ class EventLedger:
         self,
         task_id: str,
         event_type: str,
-        epistemic_type: str,
         object_ref: str,
         *,
         caused_by: tuple[str, ...] = (),
@@ -37,7 +36,7 @@ class EventLedger:
                 sequence=len(self._events[task_id]) + 1,
                 occurred_at=utc_now(),
                 event_type=event_type,
-                epistemic_type=epistemic_type,
+                epistemic_type=_event_object_type(event_type),
                 object_ref=object_ref,
                 caused_by=caused_by,
                 snapshot_id=snapshot_id,
@@ -142,4 +141,6 @@ def _event_object_type(event_type: str) -> str:
         "assertion.evaluated": "assertion_result",
         "task.transitioned": "state_transition",
         "attribution.recorded": "attribution",
+        "model_diagnostic.recorded": "model_claim",
+        "task.reset": "state_transition",
     }.get(event_type, "audit_event")

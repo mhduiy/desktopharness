@@ -17,7 +17,9 @@
 | P4b | 完成 | Context 仅保留 compact/recovery；EvidenceRecord 已收敛且不缓存 verified facts |
 | P5 | 进行中 | `autoui-smoke` 实际调用只读 `gui_run(describe)`；待真实环境回归 |
 | P6 | 完成 | 协议对象强制 ReasonCode；Core、adapter 与 Facade 不再构造裸错误码 |
-| P7 | 完成 | 运行态索引迁入 TaskRepository；事件、引用与归因迁入 AuditRecorder |
+| P7a | 完成 | 运行态索引迁入 TaskRepository；事件、引用与归因迁入 AuditRecorder |
+| P7b | 进行中 | 封装运行态意图操作，收敛事务记录与重复事件类型 |
+| P7c | 未开始 | 明确桌面事务与任务状态的并发边界 |
 | P8 | 未开始 | 为 proposal 与 evidence provider 建立统一组装注册机制 |
 | P9 | 未开始 | 集中公开状态映射，分离默认操作与诊断操作 |
 | P10 | 未开始 | 按领域边界拆分 models.py，不改变通信协议 |
@@ -78,13 +80,36 @@ uv run --with pytest pytest -q
 
 目标：Core 保留事务语义，但不由一个类同时承担事务、运行态索引和审计投影细节。
 
-- `CoreOrchestrator` 保留公开事务入口和执行顺序。
-- 将 task/proposal/decision/receipt 的运行态索引移入内部 state repository。
-- 将事件追加、对象引用和 Attribution 记录移入内部 audit recorder。
-- `ActionGate`、`AssertionEvaluator`、`TaskStateReducer` 继续保持纯领域组件。
-- 不允许新组件依赖 adapter，也不允许 adapter 相互调用。
+#### P7a：分离运行态与审计记录（完成）
 
-验收：Core 对外方法与事实链不变；Orchestrator 不再直接维护成组字典和审计细节；完整测试通过。
+- `CoreOrchestrator` 保留公开事务入口和执行顺序。
+- task/proposal/decision/receipt 的运行态索引已迁入 `TaskRepository`。
+- 事件追加、对象引用、因果关系和 Attribution 已迁入 `AuditRecorder`。
+- `ActionGate`、`AssertionEvaluator`、`TaskStateReducer` 保持纯领域组件。
+
+验收：Core 对外方法与事实链不变；Orchestrator 不再直接维护成组状态或审计字典；完整测试通过。
+
+#### P7b：封装状态意图与事务记录（进行中）
+
+目标：编排器表达流程，而不是读写运行态容器或构造审计投影。
+
+- `TaskRepository` 只提供 task、proposal、decision、guard、receipt 的意图方法；禁止 Core 直接访问内部字典。
+- 新增内部 `TransactionRecorder`，负责 Decision、Receipt、状态变更和 provider feedback 的对象存储与 Ledger 记录。
+- `AuditRecorder` 根据 `event_type` 推导对象类别；移除 Core 调用中的重复 `epistemic_type` 参数。
+- `CoreOrchestrator` 的主路径应可直接读作 `observe → propose → decide → execute → evaluate`。
+
+验收：Orchestrator 不访问 repository 内部集合，不构造 Ledger object type；Decision/Receipt 的因果链、provider feedback 和 reset 回归通过。
+
+#### P7c：明确并发事务边界
+
+目标：并发请求不会在观察、Guard 重检与输入注入之间产生不可解释的桌面状态。
+
+- 明确全局 desktop transaction lock 覆盖的最小范围：observe、Guard recheck、execute。
+- `TaskRepository` 对单任务状态更新提供原子操作；不把全局桌面锁扩展到模型调用或证据收集。
+- 为并发执行、重复 Receipt、reset 与 trace 建立回归测试。
+- 文档说明服务的并发语义和调用方可依赖的顺序保证。
+
+验收：同一任务和跨任务的并发测试可重复通过；桌面副作用保持串行，读取和模型调用不被不必要阻塞。
 
 ### P8：统一扩展组装
 
