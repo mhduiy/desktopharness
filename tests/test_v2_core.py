@@ -448,7 +448,7 @@ class OrchestratorTests(unittest.TestCase):
 
 
 class ContextBuilderTests(unittest.TestCase):
-    def test_strategies_apply_distinct_event_and_frame_budgets(self):
+    def test_only_compact_and_recovery_context_projections_are_supported(self):
         ledger = EventLedger()
         for index in range(5):
             ledger.append("task-1", "frame.captured", "evidence", f"frame-{index}")
@@ -458,29 +458,21 @@ class ContextBuilderTests(unittest.TestCase):
         compact = builder.build(
             task, TaskState("task-1"), ledger.events("task-1"), based_on_snapshot="snapshot-1"
         )
-        visual = builder.build(
+        recovery = builder.build(
             task,
             TaskState("task-1"),
             ledger.events("task-1"),
             based_on_snapshot="snapshot-1",
-            strategy="visual-heavy",
-        )
-        reset = builder.build(
-            task,
-            TaskState("task-1"),
-            ledger.events("task-1"),
-            based_on_snapshot="snapshot-1",
-            strategy="planning-reset",
+            strategy="recovery",
         )
 
         self.assertEqual(len(compact.recent_frame_refs), 1)
-        self.assertEqual(len(visual.recent_frame_refs), 4)
-        proposal_event_ids = {
-            event.event_id
-            for event in ledger.events("task-1")
-            if event.epistemic_type == "action_proposal"
-        }
-        self.assertTrue(proposal_event_ids.isdisjoint(reset.ledger_event_refs))
+        self.assertEqual(len(recovery.recent_frame_refs), 2)
+        with self.assertRaisesRegex(ValueError, "unknown context strategy"):
+            builder.build(
+                task, TaskState("task-1"), ledger.events("task-1"),
+                based_on_snapshot="snapshot-1", strategy="visual-heavy",
+            )
 
 
 if __name__ == "__main__":
