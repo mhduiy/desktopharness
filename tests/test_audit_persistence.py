@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from shutil import copyfile
 
 from mcp_autogui.core.audit import audit_components_from_config, audit_components_from_environment
 from mcp_autogui.core.ledger import CsvAuditEventLedger
@@ -10,6 +11,17 @@ from mcp_autogui.core.store import JsonAuditObjectStore
 
 
 class AuditPersistenceTests(unittest.TestCase):
+    def test_schema_1_ledger_fixture_remains_readable(self):
+        fixture = Path(__file__).parent / "fixtures" / "v2-ledger-schema-1.csv"
+        with tempfile.TemporaryDirectory() as directory:
+            copyfile(fixture, Path(directory) / "ledger.csv")
+            ledger = CsvAuditEventLedger(directory)
+
+            event, = ledger.events("legacy-task")
+            self.assertEqual(event.event_id, "event-legacy-1")
+            self.assertEqual(event.caused_by, ("proposal-event-1",))
+            self.assertEqual(event.artifact_refs, ("guard-legacy-1",))
+
     def test_json_objects_and_csv_events_survive_a_new_store_instance(self):
         with tempfile.TemporaryDirectory() as directory:
             store = JsonAuditObjectStore(directory)

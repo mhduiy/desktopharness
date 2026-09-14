@@ -1,10 +1,11 @@
 import argparse
+import json
 import logging
 import os
 import sys
 
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND
-from .server_config import load_server_config
+from .server_config import ignored_legacy_environment, load_server_config
 
 
 def _configure_plain_server_logging() -> None:
@@ -29,6 +30,18 @@ def main(argv: list[str] | None = None):
         from mcp.server.fastmcp import FastMCP
         from .mcp_autogui_main import mcp_autogui_main
 
+        _configure_plain_server_logging()
+        ignored = ignored_legacy_environment()
+        if ignored:
+            logging.getLogger(__name__).warning(
+                "JSON configuration ignores legacy behaviour environment variables: %s",
+                ", ".join(ignored),
+            )
+        effective_config = server_config.effective_config()
+        logging.getLogger(__name__).info(
+            "AutoUI MCP effective configuration: %s",
+            json.dumps(effective_config, ensure_ascii=False, sort_keys=True),
+        )
         mcp_main = FastMCP("desktop_harness_mcp",
             host=server_config.transport_host,
             port=server_config.transport_port,
@@ -39,8 +52,8 @@ def main(argv: list[str] | None = None):
             proposal_provider_config=server_config.proposal_provider,
             evidence_provider_config=server_config.evidence_providers,
             audit_config=server_config.audit,
+            effective_config=effective_config,
         )
-        _configure_plain_server_logging()
         mcp_main.run(server_config.transport_mode)
         return
 

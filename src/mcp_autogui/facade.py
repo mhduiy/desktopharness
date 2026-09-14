@@ -29,8 +29,14 @@ _ACTION_ALIASES = {
 
 
 class GuiRunFacade:
-    def __init__(self, runtime: CoreOrchestrator) -> None:
+    def __init__(
+        self,
+        runtime: CoreOrchestrator,
+        *,
+        effective_config: dict[str, Any] | None = None,
+    ) -> None:
         self.runtime = runtime
+        self.effective_config = effective_config
 
     def handle(self, operation: str, **kwargs: Any) -> dict[str, Any]:
         try:
@@ -82,6 +88,7 @@ class GuiRunFacade:
             description = {
                 "protocol_version": 2,
                 "schema_version": "1",
+                "schema_revision": "2.1-p0",
                 "adapter": to_primitive(self.runtime.compositor.descriptor),
                 "capabilities": {
                     "pointer": self.runtime.executor is not None,
@@ -110,6 +117,8 @@ class GuiRunFacade:
                 "context_strategies": sorted(self.runtime.context_builder.STRATEGIES),
                 "policy_profiles": sorted(self.runtime.gate.policy_profiles),
             }
+            if self.effective_config is not None:
+                description["effective_config"] = self.effective_config
             ref = self.runtime.store.put(description, prefix="description")
             return self._response("describe", "ok", ref, diagnostic)
 

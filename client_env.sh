@@ -272,13 +272,9 @@ if [[ ! -f "${MCP_CONFIG_PATH}" ]]; then
     exit 1
 fi
 
-# These are legacy runtime settings.  Keep only secrets (for example
-# CUA_MODEL_API_KEY from .env.local) and desktop-session variables in the
-# environment inherited by the JSON-configured server.
-unset SSE_HOST SSE_PORT MCP_TRANSPORT
-unset CUA_BACKEND_MODE CUA_MODEL_BASE_URL CUA_MODEL CUA_MODEL_TLS_VERIFY
-unset GUI_OMNIPARSER_ENABLED OMNI_PARSER_SERVER
-unset GUI_AUDIT_DIR GUI_AUDIT_RETENTION_DAYS GUI_AUDIT_MAX_GIB
+# JSON configuration owns runtime behaviour.  Keep legacy settings in the
+# child environment so the server can report exactly which settings it ignores;
+# secrets such as CUA_MODEL_API_KEY remain supported environment inputs.
 
 uv run treeland-autogui-mcp --config "${MCP_CONFIG_PATH}" || exit $?
 

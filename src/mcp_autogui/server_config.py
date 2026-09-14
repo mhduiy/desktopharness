@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,63 @@ class ServerConfig:
     proposal_provider: dict[str, Any]
     evidence_providers: dict[str, Any]
     audit: dict[str, Any]
+
+    def effective_config(self) -> dict[str, Any]:
+        """Return the active non-secret configuration for logs and discovery."""
+        provider = dict(self.proposal_provider)
+        provider.pop("api_key", None)
+        return {
+            "config_path": str(self.path),
+            "transport": {
+                "mode": self.transport_mode,
+                "host": self.transport_host,
+                "port": self.transport_port,
+            },
+            "desktop_backend": self.desktop_backend,
+            "proposal_provider": provider,
+            "evidence_providers": self.evidence_providers,
+            "audit": self.audit,
+        }
+
+
+LEGACY_BEHAVIOUR_ENVIRONMENT = frozenset({
+    "SSE_HOST",
+    "SSE_PORT",
+    "MCP_TRANSPORT",
+    "CUA_BACKEND_MODE",
+    "CUA_BACKEND_URL",
+    "CUA_BACKEND_TIMEOUT",
+    "CUA_TLS_VERIFY",
+    "CUA_HTTP_TRUST_ENV",
+    "CUA_AGENT_TYPE",
+    "CUA_ROLLOUT_NUMS",
+    "CUA_MODEL_BASE_URL",
+    "CUA_MODEL",
+    "CUA_MODEL_TIMEOUT",
+    "CUA_MODEL_TLS_VERIFY",
+    "CUA_MODEL_TRUST_ENV",
+    "CUA_MAX_TOKENS",
+    "CUA_MAX_RESPONSE_CHARS",
+    "CUA_TOP_P",
+    "CUA_TEMPERATURE",
+    "CUA_MAX_HISTORY_TURNS",
+    "CUA_COORDINATE_TYPE",
+    "CUA_RESIZE_FACTOR",
+    "GUI_OMNIPARSER_ENABLED",
+    "OMNI_PARSER_SERVER",
+    "GUI_AUDIT_DIR",
+    "GUI_AUDIT_RETENTION_DAYS",
+    "GUI_AUDIT_MAX_GIB",
+})
+
+
+def ignored_legacy_environment() -> tuple[str, ...]:
+    """List legacy behaviour variables ignored when JSON config is selected.
+
+    ``CUA_MODEL_API_KEY`` and backend API keys are deliberately excluded: they
+    remain the supported secret-only environment inputs.
+    """
+    return tuple(sorted(name for name in LEGACY_BEHAVIOUR_ENVIRONMENT if os.getenv(name) is not None))
 
 
 def load_server_config(path: str | Path) -> ServerConfig:

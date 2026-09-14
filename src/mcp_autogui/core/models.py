@@ -78,6 +78,40 @@ class PolicyStatus(StrEnum):
     STALE = "stale"
 
 
+class ReasonCode(StrEnum):
+    """Stable protocol reason codes shared by decisions and diagnostics."""
+
+    OK = "OK"
+    CAPABILITY_UNAVAILABLE = "CAPABILITY_UNAVAILABLE"
+    CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"
+    CONTROLLER_TASK_CONTRACT_INVALID = "CONTROLLER_TASK_CONTRACT_INVALID"
+    COORDINATE_SPACE_CHANGED = "COORDINATE_SPACE_CHANGED"
+    CURSOR_ORIGIN_CHANGED = "CURSOR_ORIGIN_CHANGED"
+    EVIDENCE_COLLECTION_FAILED = "EVIDENCE_COLLECTION_FAILED"
+    EXECUTOR_ACTION_FAILED = "EXECUTOR_ACTION_FAILED"
+    EXECUTOR_ACTION_MISMATCH = "EXECUTOR_ACTION_MISMATCH"
+    HIT_TEST_CHANGED = "HIT_TEST_CHANGED"
+    INSUFFICIENT_GROUND_TRUTH = "INSUFFICIENT_GROUND_TRUTH"
+    INVALID_COORDINATE_SPACE = "INVALID_COORDINATE_SPACE"
+    MECHANICAL_PERMISSION_DENIED = "MECHANICAL_PERMISSION_DENIED"
+    MODEL_PLANNING_INVALID = "MODEL_PLANNING_INVALID"
+    MODEL_PROTOCOL_INVALID = "MODEL_PROTOCOL_INVALID"
+    OBJECT_NOT_FOUND = "OBJECT_NOT_FOUND"
+    OUTCOME_POSTCONDITION_FAILED = "OUTCOME_POSTCONDITION_FAILED"
+    OUTSIDE_DESKTOP = "OUTSIDE_DESKTOP"
+    POLICY_DENIED = "POLICY_DENIED"
+    ROOT_CAUSE_UNRESOLVED = "ROOT_CAUSE_UNRESOLVED"
+    SEMANTIC_POLICY_DENIED = "SEMANTIC_POLICY_DENIED"
+    SNAPSHOT_UNAVAILABLE = "SNAPSHOT_UNAVAILABLE"
+    TARGET_DISAPPEARED = "TARGET_DISAPPEARED"
+    TARGET_GEOMETRY_INVALIDATED = "TARGET_GEOMETRY_INVALIDATED"
+    TARGET_IDENTITY_CHANGED = "TARGET_IDENTITY_CHANGED"
+    TARGET_NOT_FOUND = "TARGET_NOT_FOUND"
+    TARGET_OCCLUDED = "TARGET_OCCLUDED"
+    UNSUPPORTED_OPERATION = "UNSUPPORTED_OPERATION"
+    USER_CONFIRMED = "USER_CONFIRMED"
+
+
 class ExecutionStatus(StrEnum):
     DELIVERED = "delivered"
     REJECTED = "rejected"
@@ -156,7 +190,7 @@ class Attribution:
     event_kind: AttributionEventKind
     stage: AttributionStage
     owner: AttributionOwner
-    code: str
+    code: ReasonCode | str
     evidence_status: AttributionEvidenceStatus
     primary: bool
     summary: str
@@ -390,7 +424,7 @@ class ProposalGuard:
 class PolicyDecision:
     proposal_id: str
     status: PolicyStatus
-    reason_code: str
+    reason_code: ReasonCode | str
     resolved_target: Mapping[str, Any] = field(default_factory=dict)
     guard_ref: str | None = None
     semantic_resolution_ref: str | None = None
@@ -406,7 +440,7 @@ class ExecutionReceipt:
     executed_action: Action | None
     started_at: str
     finished_at: str
-    error_code: str | None = None
+    error_code: ReasonCode | str | None = None
     debug_ref: str | None = None
     schema_version: str = SCHEMA_VERSION
 

@@ -175,6 +175,7 @@ def mcp_autogui_main(
     proposal_provider_config: dict[str, object] | None = None,
     evidence_provider_config: dict[str, object] | None = None,
     audit_config: dict[str, object] | None = None,
+    effective_config: dict[str, object] | None = None,
 ):
     qwen_backend = QwenBackendClient(proposal_provider_config)
     backend_close = getattr(qwen_backend, "close", None)
@@ -250,7 +251,7 @@ def mcp_autogui_main(
         store=store,
         ledger=ledger,
     )
-    facade = GuiRunFacade(runtime)
+    facade = GuiRunFacade(runtime, effective_config=effective_config)
     capture_frame = desktop_backend.capture_observation
 
 

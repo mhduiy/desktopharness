@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from mcp_autogui.desktop_backend import (
     DesktopBackend,
@@ -9,7 +10,7 @@ from mcp_autogui.desktop_backend import (
     create_desktop_backend,
     register_desktop_backend,
 )
-from mcp_autogui.server_config import load_server_config
+from mcp_autogui.server_config import ignored_legacy_environment, load_server_config
 
 
 def config_payload(*, backend="treeland-deepin"):
@@ -78,6 +79,12 @@ class ServerConfigTests(unittest.TestCase):
         payload["proposal_provider"]["temperature"] = 1.5
         with self.assertRaisesRegex(ValueError, "temperature must be a number from 0 to 1"):
             load_server_config(self.write_config(payload))
+
+    def test_effective_config_is_non_secret_and_legacy_environment_is_visible(self):
+        config = load_server_config(self.write_config(config_payload()))
+        self.assertNotIn("api_key", config.effective_config()["proposal_provider"])
+        with patch.dict("os.environ", {"CUA_MODEL": "legacy", "CUA_MODEL_API_KEY": "secret"}, clear=True):
+            self.assertEqual(ignored_legacy_environment(), ("CUA_MODEL",))
 
     def test_registered_backend_factory_is_selected_without_a_platform_branch(self):
         backend_id = "test-desktop-registry"

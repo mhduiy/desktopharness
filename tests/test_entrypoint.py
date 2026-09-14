@@ -95,6 +95,7 @@ class EntrypointTests(unittest.TestCase):
                     kwargs["proposal_provider_config"],
                     kwargs["evidence_provider_config"],
                     kwargs["audit_config"],
+                    kwargs["effective_config"],
                 )
             )
             with patch.dict(os.environ, {"SSE_HOST": "legacy-host", "SSE_PORT": "9000"}, clear=True), patch.dict(
@@ -108,7 +109,22 @@ class EntrypointTests(unittest.TestCase):
 
         self.assertEqual(
             selected_backends,
-            [("treeland-deepin", {"kind": "qwen-cua", "mode": "embedded"}, {}, {})],
+            [
+                (
+                    "treeland-deepin",
+                    {"kind": "qwen-cua", "mode": "embedded"},
+                    {},
+                    {},
+                    {
+                        "config_path": str(path),
+                        "transport": {"mode": "streamable-http", "host": "127.0.0.1", "port": 8651},
+                        "desktop_backend": "treeland-deepin",
+                        "proposal_provider": {"kind": "qwen-cua", "mode": "embedded"},
+                        "evidence_providers": {},
+                        "audit": {},
+                    },
+                )
+            ],
         )
         self.assertEqual(instances[0].kwargs, {"host": "127.0.0.1", "port": 8651})
         self.assertEqual(instances[0].transport, "streamable-http")
