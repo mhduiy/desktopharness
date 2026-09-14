@@ -7,10 +7,9 @@ from dataclasses import replace
 from threading import RLock
 from typing import Any, Mapping
 
-from ..ports.application_launcher import ApplicationLauncher
 from ..ports.compositor import CompositorAdapter
 from ..ports.evidence import EvidenceProvider
-from ..ports.executor import InputExecutor
+from ..ports.executor import ActionExecutor
 from ..ports.frame import FrameProvider
 from ..ports.policy import PolicyProvider
 from ..ports.proposal import ProposalProvider
@@ -54,11 +53,10 @@ class CoreOrchestrator:
     def __init__(
         self,
         compositor: CompositorAdapter,
-        executor: InputExecutor,
+        executor: ActionExecutor,
         *,
         proposal_provider: ProposalProvider | None = None,
         frame_provider: FrameProvider | None = None,
-        application_launcher: ApplicationLauncher | None = None,
         evidence_providers: Sequence[EvidenceProvider] = (),
         policy_providers: Sequence[PolicyProvider] = (),
         policy_profiles: Mapping[str, Mapping[str, str]] | None = None,
@@ -69,7 +67,6 @@ class CoreOrchestrator:
         self.executor = executor
         self.proposal_provider = proposal_provider
         self.frame_provider = frame_provider
-        self.application_launcher = application_launcher
         self.evidence_providers = tuple(evidence_providers)
         self.policy_providers = tuple(policy_providers)
         provider_ids = [provider.provider_id for provider in self.evidence_providers]
@@ -351,25 +348,7 @@ class CoreOrchestrator:
                 self._record_non_execution(task_id, proposal, stale)
                 return stale
 
-        if proposal.action.type == ActionType.APPLICATION_LAUNCH:
-            if self.application_launcher is None:
-                unavailable = replace(
-                    decision,
-                    status=PolicyStatus.INVALID,
-                    reason_code="CAPABILITY_UNAVAILABLE",
-                )
-                self._store_decision(
-                    task_id,
-                    proposal,
-                    unavailable,
-                    caused_by=self._causes_for(self._decision_refs[proposal_id]),
-                    snapshot_id=latest.snapshot_id,
-                )
-                self._record_non_execution(task_id, proposal, unavailable)
-                return unavailable
-            receipt = self.application_launcher.launch(proposal)
-        else:
-            receipt = self.executor.execute(proposal)
+        receipt = self.executor.execute(proposal)
         if (
             receipt.proposal_id != proposal.proposal_id
             or (

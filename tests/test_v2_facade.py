@@ -104,7 +104,7 @@ class FacadeTests(unittest.TestCase):
     def test_describe_exposes_capabilities_separately_from_task_permissions(self):
         response = self.facade.handle("describe", diagnostic=True)
         self.assertEqual(response["protocol_version"], 2)
-        self.assertEqual(response["object"]["schema_revision"], "2.1-p1")
+        self.assertEqual(response["object"]["schema_revision"], "2.1-p2")
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
         self.assertIn("pointer.click", response["object"]["actions"])
 

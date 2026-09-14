@@ -26,13 +26,17 @@ class PyAutoGUIExecutor:
         coordinate_mapper: Callable[[Point, str, ActionProposal], Point] | None = None,
         platform_resolver: Callable[[str], dict | None] | None = None,
         drag_handler: Callable[[ActionProposal, Point], bool] | None = None,
+        application_handler: Callable[[ActionProposal], ExecutionReceipt] | None = None,
     ) -> None:
         self._module = module
         self._coordinate_mapper = coordinate_mapper or (lambda point, _space, _proposal: point)
         self._platform_resolver = platform_resolver
         self._drag_handler = drag_handler
+        self._application_handler = application_handler
 
     def execute(self, proposal: ActionProposal) -> ExecutionReceipt:
+        if proposal.action.type == ActionType.APPLICATION_LAUNCH and self._application_handler:
+            return self._application_handler(proposal)
         started = utc_now()
         status = ExecutionStatus.DELIVERED
         error = None
@@ -111,6 +115,8 @@ class PyAutoGUIExecutor:
                 raise PermissionError("platform capability is not executable")
             keys = capability.get("normalized_hotkeys", [[]])[0]
             self._module.press(keys[0]) if len(keys) == 1 else self._module.hotkey(*keys)
+        elif action.type == ActionType.APPLICATION_LAUNCH:
+            raise RuntimeError("application launch handler unavailable")
         elif action.type == ActionType.DONE:
             return
         else:

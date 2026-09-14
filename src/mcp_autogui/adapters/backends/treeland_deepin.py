@@ -212,18 +212,19 @@ def create_backend(
             coordinate_mapper=coordinate_mapper,
             platform_resolver=platform_provider.resolve,
             drag_handler=drag_handler,
+            application_handler=application_launcher.launch,
         ),
         frame_provider=PyAutoGUIFrameProvider(input_module, artifact_store),
         read_observation_state=tree_reader,
         capture_observation=lambda: _capture_observation(input_module, tree_reader),
         active_window_summary=active_window_summary,
-        application_launcher=application_launcher,
         policy_providers=(platform_provider,),
         list_capabilities=capability_loader,
         find_capability=capability_resolver,
         list_applications=load_desktop_application_catalogue,
         validate_application_id=validate_application_id,
         platform_resolver=platform_provider.resolve,
+        application_result_for=application_launcher.result_for,
     )
 
 

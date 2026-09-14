@@ -288,6 +288,37 @@ class EvidenceAndStateTests(unittest.TestCase):
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_application_launch_uses_the_single_injected_executor(self):
+        class RecordingExecutor(FakeExecutor):
+            def __init__(self):
+                self.proposals = []
+
+            def execute(self, proposal):
+                self.proposals.append(proposal)
+                return super().execute(proposal)
+
+        executor = RecordingExecutor()
+        runtime = CoreOrchestrator(FakeCompositor([snapshot(), snapshot(snapshot_id="snapshot-2")]), executor)
+        runtime.register_task(
+            contract(
+                actions={ActionType.APPLICATION_LAUNCH},
+                intents={"open_application"},
+            )
+        )
+        observed = runtime.observe("task-1")
+        proposal = ActionProposal(
+            proposal_id=new_id("proposal"),
+            source="fixture",
+            based_on_snapshot=observed.snapshot_id,
+            action=Action(ActionType.APPLICATION_LAUNCH, parameters={"app_id": "dde-computer"}),
+        )
+        runtime.submit_proposal("task-1", proposal)
+
+        receipt = runtime.execute(proposal.proposal_id)
+
+        self.assertEqual(receipt.status, ExecutionStatus.DELIVERED)
+        self.assertEqual(executor.proposals, [proposal])
+
     def test_denied_or_stale_actions_do_not_create_receipts_or_call_executor(self):
         class CountingExecutor(FakeExecutor):
             def __init__(self):

@@ -100,7 +100,6 @@ class ServerConfigTests(unittest.TestCase):
                 read_observation_state=lambda: {},
                 capture_observation=lambda: (b"", (0, 0), {}),
                 active_window_summary=lambda _state: None,
-                application_launcher=None,
                 policy_providers=(),
                 list_capabilities=lambda: [],
                 find_capability=lambda _identifier: None,

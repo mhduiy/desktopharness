@@ -7,9 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 from .core.store import ObjectStore
-from .ports.application_launcher import ApplicationLauncher
 from .ports.compositor import CompositorAdapter
-from .ports.executor import InputExecutor
+from .ports.executor import ActionExecutor
 from .ports.frame import FrameProvider
 from .ports.policy import PolicyProvider
 
@@ -23,18 +22,18 @@ class DesktopBackend:
 
     backend_id: str
     compositor: CompositorAdapter
-    executor: InputExecutor
+    executor: ActionExecutor
     frame_provider: FrameProvider
     read_observation_state: Callable[[], object]
     capture_observation: Callable[[], tuple[bytes, tuple[int, int], object]]
     active_window_summary: Callable[[object], dict[str, object] | None]
-    application_launcher: ApplicationLauncher | None
     policy_providers: tuple[PolicyProvider, ...]
     list_capabilities: Callable[[], list[dict[str, Any]]]
     find_capability: Callable[[str], dict[str, Any] | None]
     list_applications: Callable[[], list[dict[str, Any]]]
     validate_application_id: Callable[[str], str]
     platform_resolver: Callable[[str], dict[str, Any] | None] | None = None
+    application_result_for: Callable[[str], object | None] | None = None
 
 
 DesktopBackendFactory = Callable[..., DesktopBackend]

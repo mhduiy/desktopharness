@@ -5,6 +5,5 @@ from typing import Protocol
 from ..core.models import ActionProposal, ExecutionReceipt
 
 
-class InputExecutor(Protocol):
+class ActionExecutor(Protocol):
     def execute(self, proposal: ActionProposal) -> ExecutionReceipt: ...
-

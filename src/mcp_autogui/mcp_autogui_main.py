@@ -245,7 +245,6 @@ def mcp_autogui_main(
         desktop_backend.executor,
         proposal_provider=QwenCUAProposalProvider(qwen_backend, store),
         frame_provider=desktop_backend.frame_provider,
-        application_launcher=desktop_backend.application_launcher,
         evidence_providers=tuple(evidence_providers),
         policy_providers=desktop_backend.policy_providers,
         store=store,
@@ -459,9 +458,8 @@ def mcp_autogui_main(
         if decision.status.value != "allow":
             raise PermissionError(f"policy refused application launch: {decision.reason_code}")
         receipt = await run_blocking(runtime.execute, proposal.proposal_id)
-        launcher = desktop_backend.application_launcher
-        result_for = getattr(launcher, "result_for", None)
-        result = result_for(proposal.proposal_id) if callable(result_for) else None
+        result_for = desktop_backend.application_result_for
+        result = result_for(proposal.proposal_id) if result_for is not None else None
         if receipt.status.value != "delivered":
             return {
                 "status": "failed",

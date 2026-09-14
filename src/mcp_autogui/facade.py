@@ -89,7 +89,7 @@ class GuiRunFacade:
             description = {
                 "protocol_version": 2,
                 "schema_version": "1",
-                "schema_revision": "2.1-p1",
+                "schema_revision": "2.1-p2",
                 "adapter": to_primitive(self.runtime.compositor.descriptor),
                 "capabilities": {
                     "pointer": self.runtime.executor is not None,
@@ -109,9 +109,6 @@ class GuiRunFacade:
                         for item in self.runtime.evidence_providers
                     ],
                     "executor": _component_id(self.runtime.executor, "executor_id"),
-                    "application_launcher": _component_id(
-                        self.runtime.application_launcher, "launcher_id"
-                    ),
                 },
                 "actions": [item.value for item in ActionType],
                 "operations": ["describe", "observe", "propose", "decide", "execute", "evaluate", "run", "status", "reset", "trace"],
