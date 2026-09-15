@@ -99,7 +99,7 @@ class ServerConfigTests(unittest.TestCase):
                 frame_provider=object(),
                 capture_observation=lambda: (b"", (0, 0), {}),
                 policy_providers=(),
-                create_tools=lambda _runtime, _run_blocking: object(),
+                create_tools=lambda _transactions, _run_blocking: object(),
             )
 
         register_desktop_backend(backend_id, factory)

@@ -8,8 +8,8 @@
 
 ## 当前状态
 
-v2.1 的 P0–P4、P6–P17 已完成。当前唯一发布前阻塞项是 P5：在真实 Treeland/Deepin 会话中
-完成回归矩阵。环境未验收不等于模型、策略或执行失败，必须单独记录。
+v2.1 的 P0–P4、P6–P17 已完成。剩余工作分为两类：P18 完成最后一轮架构边界收敛；P5 在真实
+Treeland/Deepin 会话中完成发布前回归。环境未验收不等于模型、策略或执行失败，必须单独记录。
 
 | 阶段 | 交付基线 |
 | --- | --- |
@@ -18,6 +18,7 @@ v2.1 的 P0–P4、P6–P17 已完成。当前唯一发布前阻塞项是 P5：�
 | P10–P13 | 领域文件、调用文档、配置入口与可选 LangChain 边界 |
 | P14–P16 | 可读模型、desktop backend 平台工具与 TaskState 状态权威 |
 | P17 | 当前实现文档收敛 |
+| P18 | 进行中：P18a 已窄化桌面事务边界；P18b–P18d 待实施 |
 
 已实现的稳定边界：
 
@@ -52,6 +53,7 @@ uv run --with pytest pytest -q
 | Proposal、Decision、Receipt | `src/mcp_autogui/core/transaction.py` |
 | TaskContract 与 TaskState | `src/mcp_autogui/core/task.py`、`src/mcp_autogui/core/task_state.py` |
 | 运行态与事实记录 | `src/mcp_autogui/core/task_repository.py`、`src/mcp_autogui/core/transaction_recorder.py` |
+| 桌面工具事务入口 | `src/mcp_autogui/desktop_transactions.py`、`src/mcp_autogui/desktop_backend.py` |
 | 策略与 Guard | `src/mcp_autogui/core/action_gate.py` |
 | Evidence 与 Assertion | `src/mcp_autogui/core/evidence.py`、`src/mcp_autogui/core/assertion_evaluator.py` |
 | Ledger 与 Attribution | `src/mcp_autogui/core/audit_recorder.py`、`src/mcp_autogui/core/ledger.py` |
@@ -98,9 +100,48 @@ Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路�
 扩展不得增加第二套公开状态、错误码 registry 或平台条件分支。未知 provider、重复注册和无效配置必须
 在启动时失败。
 
-## 发布前待办
+## P18 最终边界收敛
 
-仅剩真实 Treeland/Deepin 回归：
+P18 不改变事实链、公开操作或领域状态，只移除现有的宽接口和职责泄漏。每个子阶段独立测试、确认和提交。
+
+### P18a：窄化桌面事务接口（完成）
+
+- desktop backend 不再接收整个 `CoreOrchestrator` 或 `Any` runtime。
+- Core 或应用层提供一个最小事务调用接口，统一完成 register、observe、submit、decide、execute、evaluate。
+- 快捷键和应用启动仍由 backend 定义 Contract、Proposal 与平台验证，但不得自行复制核心事务顺序。
+
+验收：backend 只能调用明确声明的事务能力；替换 backend 不修改 Core、Facade 或 MCP 工具签名。
+
+完成：应用层 `CoreDesktopTransactionRunner` 统一 register、observe、submit、decide 与 execute，并按需提供
+evaluate；desktop backend 只接收 `DesktopTransactionRunner` 与领域结果，不再持有或导入完整 Core runtime。
+
+### P18b：分离公开与诊断分派
+
+- `gui_run` 和 `gui_diagnostic` 使用独立分派路径，不再共享 `diagnostic` 布尔开关。
+- Contract/Proposal 解析保持共享纯函数；公开 reducer 仍只依据 TaskState 和协议错误。
+- 诊断入口展示领域事实，不参与公开状态约简。
+
+验收：公开路径中不存在 Decision/Receipt 状态翻译；新增诊断字段不会影响 `gui_run`。
+
+### P18c：收回协议错误与响应职责
+
+- 使用一个携带 `ReasonCode` 和恢复建议的轻量协议异常，删除按异常文本猜测错误码的逻辑。
+- 将 `response_envelope` 从 `core/orchestrator.py` 移到 Facade/协议展示层。
+- 同步架构文档：公开状态由 TaskState 决定，只有协议错误可直接归并为 `failed`。
+
+验收：Core 不构造 MCP envelope；相同异常信息文本不会改变 ReasonCode；诊断 schema 保持稳定。
+
+### P18d：固化边界并恢复可读性
+
+- 增加依赖测试：Core 不导入 adapters，desktop tools 不依赖完整 Core runtime，公开与诊断分派不回退合并。
+- 只整理本阶段触及文件的导入、签名和长表达式；不为减少行数新增零散 helper 或抽象层。
+- 完整测试和真实环境测试继续分别报告，不用单元测试替代 P5。
+
+验收：边界测试可阻止上述职责泄漏回归；主事务路径无需跨越平台实现即可阅读。
+
+## P5 真实环境回归
+
+代码边界收敛后，发布前仍需完成真实 Treeland/Deepin 回归：
 
 1. 安装服务证书到系统信任库，通过 HTTPS 调用实际 MCP 入口。
 2. 运行 `autoui-smoke`，确认 tree、provider 和 `gui_run(describe)` 均可用。

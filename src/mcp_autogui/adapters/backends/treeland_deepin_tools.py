@@ -8,12 +8,17 @@ import time
 from typing import Any
 
 from ...core.desktop import Point
-from ...core.orchestrator import CoreOrchestrator
 from ...core.protocol import new_id
 from ...core.store import ObjectStore
 from ...core.task import AssertionSpec, TaskContract, TaskLimits, TaskPermissions
-from ...core.transaction import Action, ActionProposal, ActionType
-from ...desktop_backend import RunBlocking
+from ...core.transaction import (
+    Action,
+    ActionProposal,
+    ActionType,
+    ExecutionStatus,
+    PolicyStatus,
+)
+from ...desktop_backend import DesktopTransactionRunner, RunBlocking
 
 
 DEFAULT_APPLICATION_WAIT_TIMEOUT_S = 3.0
@@ -26,7 +31,7 @@ class TreelandDeepinTools:
 
     def __init__(
         self,
-        runtime: CoreOrchestrator,
+        transactions: DesktopTransactionRunner,
         store: ObjectStore,
         run_blocking: RunBlocking,
         *,
@@ -39,7 +44,7 @@ class TreelandDeepinTools:
         capture_observation: Callable[[], tuple[bytes, tuple[int, int], object]],
         active_window_summary: Callable[[object], dict[str, object] | None],
     ) -> None:
-        self._runtime = runtime
+        self._transactions = transactions
         self._store = store
         self._run_blocking = run_blocking
         self._capability_loader = capability_loader
@@ -77,42 +82,47 @@ class TreelandDeepinTools:
             raise ValueError("desktop capability has no keyboard shortcut")
         keys = hotkeys[0]
         task_id = new_id("shortcut-task")
-        self._runtime.register_task(
-            TaskContract(
-                task_id=task_id,
-                goal=f"Invoke platform capability {resolved_id}",
-                permissions=TaskPermissions(
-                    frozenset({ActionType.PLATFORM_INVOKE}),
-                    frozenset({"navigation"}),
-                ),
-                limits=TaskLimits(max_steps=1, max_retries=0),
-            )
+        contract = TaskContract(
+            task_id=task_id,
+            goal=f"Invoke platform capability {resolved_id}",
+            permissions=TaskPermissions(
+                frozenset({ActionType.PLATFORM_INVOKE}),
+                frozenset({"navigation"}),
+            ),
+            limits=TaskLimits(max_steps=1, max_retries=0),
         )
-        observed = await self._run_blocking(self._runtime.observe, task_id)
-        raw_before = self._store.require(observed.raw_artifact_ref)
-        before = self._active_window_summary(raw_before)
-        proposal = ActionProposal(
-            proposal_id=new_id("proposal"),
-            source="desktop-shortcut",
-            based_on_snapshot=observed.snapshot_id,
-            action=Action(
-                ActionType.PLATFORM_INVOKE,
-                parameters={"capability_id": resolved_id},
+        outcome = await self._transactions.execute(
+            contract,
+            lambda snapshot: ActionProposal(
+                proposal_id=new_id("proposal"),
+                source="desktop-shortcut",
+                based_on_snapshot=snapshot.snapshot_id,
+                action=Action(
+                    ActionType.PLATFORM_INVOKE,
+                    parameters={"capability_id": resolved_id},
+                ),
             ),
         )
-        self._runtime.submit_proposal(task_id, proposal)
-        decision = self._runtime.decide(proposal.proposal_id)
-        if decision.status.value != "allow":
-            raise PermissionError(f"policy refused shortcut: {decision.reason_code}")
-        receipt = await self._run_blocking(self._runtime.execute, proposal.proposal_id)
-        if receipt.status.value != "delivered":
+        raw_before = self._store.require(outcome.snapshot.raw_artifact_ref)
+        before = self._active_window_summary(raw_before)
+        if outcome.decision.status != PolicyStatus.ALLOW:
+            raise PermissionError(
+                f"policy refused shortcut: {outcome.decision.reason_code}"
+            )
+        receipt = outcome.receipt
+        if receipt is None or receipt.status != ExecutionStatus.DELIVERED:
             return {
                 "status": "failed",
                 "capability": capability,
                 "executed_keys": [],
-                "reason": receipt.error_code,
+                "reason": (
+                    receipt.error_code
+                    if receipt is not None
+                    else outcome.decision.reason_code
+                ),
             }
-        _, _, post_tree, evidence = _capture_post_action_frame(
+        _, _, post_tree, evidence = await self._run_blocking(
+            _capture_post_action_frame,
             self._capture_observation,
             self._read_observation_state,
             self._active_window_summary,
@@ -155,57 +165,66 @@ class TreelandDeepinTools:
         timeout_s = _application_wait_timeout(application_wait_timeout_s)
         task_id = new_id("application-task")
         assertions = (
-            AssertionSpec(
-                "application-active",
-                "active_window.app_id",
-                "equals",
-                expected_app_id,
-            ),
-        ) if expected_app_id else ()
-        self._runtime.register_task(
-            TaskContract(
-                task_id=task_id,
-                goal=f"Launch application {resolved_app_id}",
-                permissions=TaskPermissions(
-                    frozenset({ActionType.APPLICATION_LAUNCH}),
-                    frozenset({"open_application"}),
+            (
+                AssertionSpec(
+                    "application-active",
+                    "active_window.app_id",
+                    "equals",
+                    expected_app_id,
                 ),
-                assertions=assertions,
-                limits=TaskLimits(max_steps=1, max_retries=0),
-                verification_profile="application-open",
             )
+            if expected_app_id
+            else ()
         )
-        observed = await self._run_blocking(self._runtime.observe, task_id)
-        active_before = self._active_window_summary(
-            self._store.require(observed.raw_artifact_ref)
-        )
-        proposal = ActionProposal(
-            proposal_id=new_id("proposal"),
-            source="desktop-application-launch",
-            based_on_snapshot=observed.snapshot_id,
-            action=Action(
-                ActionType.APPLICATION_LAUNCH,
-                parameters={"app_id": resolved_app_id},
+        contract = TaskContract(
+            task_id=task_id,
+            goal=f"Launch application {resolved_app_id}",
+            permissions=TaskPermissions(
+                frozenset({ActionType.APPLICATION_LAUNCH}),
+                frozenset({"open_application"}),
             ),
-            claimed_intent="open_application",
+            assertions=assertions,
+            limits=TaskLimits(max_steps=1, max_retries=0),
+            verification_profile="application-open",
         )
-        self._runtime.submit_proposal(task_id, proposal)
-        decision = self._runtime.decide(proposal.proposal_id)
-        if decision.status.value != "allow":
-            raise PermissionError(f"policy refused application launch: {decision.reason_code}")
-        receipt = await self._run_blocking(self._runtime.execute, proposal.proposal_id)
-        result = self._application_result_for(proposal.proposal_id)
-        if receipt.status.value != "delivered":
+        outcome = await self._transactions.execute(
+            contract,
+            lambda snapshot: ActionProposal(
+                proposal_id=new_id("proposal"),
+                source="desktop-application-launch",
+                based_on_snapshot=snapshot.snapshot_id,
+                action=Action(
+                    ActionType.APPLICATION_LAUNCH,
+                    parameters={"app_id": resolved_app_id},
+                ),
+                claimed_intent="open_application",
+            ),
+        )
+        active_before = self._active_window_summary(
+            self._store.require(outcome.snapshot.raw_artifact_ref)
+        )
+        if outcome.decision.status != PolicyStatus.ALLOW:
+            raise PermissionError(
+                f"policy refused application launch: {outcome.decision.reason_code}"
+            )
+        receipt = outcome.receipt
+        result = self._application_result_for(outcome.proposal.proposal_id)
+        if receipt is None or receipt.status != ExecutionStatus.DELIVERED:
             return {
                 "status": "failed",
                 "app_id": resolved_app_id,
                 "returncode": getattr(result, "returncode", None),
                 "stdout": getattr(result, "stdout", None),
                 "stderr": getattr(result, "stderr", None),
-                "reason": receipt.error_code,
+                "reason": (
+                    receipt.error_code
+                    if receipt is not None
+                    else outcome.decision.reason_code
+                ),
             }
 
-        _, _, post_tree, application_wait = _capture_post_action_frame(
+        _, _, post_tree, application_wait = await self._run_blocking(
+            _capture_post_action_frame,
             self._capture_observation,
             self._read_observation_state,
             self._active_window_summary,
@@ -219,7 +238,7 @@ class TreelandDeepinTools:
             active_after,
             application_wait,
         )
-        await self._run_blocking(self._runtime.evaluate, task_id)
+        await self._transactions.evaluate(task_id)
         return {
             "status": (
                 "success"

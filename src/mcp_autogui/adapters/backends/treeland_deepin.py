@@ -24,7 +24,7 @@ from ...core.models import (
     utc_now,
 )
 from ...core.store import ObjectStore
-from ...desktop_backend import DesktopBackend
+from ...desktop_backend import DesktopBackend, DesktopTransactionRunner, RunBlocking
 from ...desktop_capabilities import (
     find_capability,
     load_desktop_application_catalogue,
@@ -208,9 +208,12 @@ def create_backend(
 
     capture_observation = lambda: _capture_observation(input_module, tree_reader)
 
-    def create_tools(runtime: Any, run_blocking: Any) -> TreelandDeepinTools:
+    def create_tools(
+        transactions: DesktopTransactionRunner,
+        run_blocking: RunBlocking,
+    ) -> TreelandDeepinTools:
         return TreelandDeepinTools(
-            runtime,
+            transactions,
             artifact_store,
             run_blocking,
             capability_loader=capability_loader,

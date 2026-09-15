@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .core.desktop import CanonicalSnapshot
 from .core.store import ObjectStore
+from .core.task import TaskContract, TaskState
+from .core.transaction import ActionProposal, ExecutionReceipt, PolicyDecision
 from .ports.compositor import CompositorAdapter
 from .ports.executor import ActionExecutor
 from .ports.frame import FrameProvider
@@ -34,7 +37,29 @@ class DesktopTools(Protocol):
 
 
 RunBlocking = Callable[..., Awaitable[Any]]
-DesktopToolsFactory = Callable[[Any, RunBlocking], DesktopTools]
+ProposalBuilder = Callable[[CanonicalSnapshot], ActionProposal]
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopTransactionResult:
+    snapshot: CanonicalSnapshot
+    proposal: ActionProposal
+    decision: PolicyDecision
+    receipt: ExecutionReceipt | None
+    state: TaskState
+
+
+class DesktopTransactionRunner(Protocol):
+    async def execute(
+        self,
+        contract: TaskContract,
+        proposal_builder: ProposalBuilder,
+    ) -> DesktopTransactionResult: ...
+
+    async def evaluate(self, task_id: str) -> TaskState: ...
+
+
+DesktopToolsFactory = Callable[[DesktopTransactionRunner, RunBlocking], DesktopTools]
 
 
 @dataclass(frozen=True)
