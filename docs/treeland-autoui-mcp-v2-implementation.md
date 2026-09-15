@@ -8,18 +8,13 @@
 
 ## 当前状态
 
-v2.1 的 P0–P4、P6–P18 已完成。P19 用于统一命名、收口运行描述并再次压缩本文；发布前仍需完成
-P5 真实 Treeland/Deepin 回归。环境未验收不等于模型、策略或执行失败，必须单独记录。
+v2.1 的代码与文档收敛已经完成。发布前只剩 P5：在真实 Treeland/Deepin 会话中执行验收。
+环境未验收不等于模型、策略或执行失败，必须单独记录。
 
-| 阶段 | 交付基线 |
-| --- | --- |
-| P0–P4 | 配置、ReasonCode、事实对象、五态 TaskState 与 compact facade |
-| P6–P9 | 状态仓库、事务记录、并发边界、provider 注册与公开/诊断入口 |
-| P10–P13 | 领域文件、调用文档、配置入口与可选 LangChain 边界 |
-| P14–P16 | 可读模型、desktop backend 平台工具与 TaskState 状态权威 |
-| P17 | 当前实现文档收敛 |
-| P18 | 完成：桌面事务、Facade、协议错误与依赖测试边界已收敛 |
-| P19 | 计划：统一人类可理解的命名，收口运行描述，压缩实施记录 |
+| 范围 | 状态 | 结果 |
+| --- | --- | --- |
+| P0–P4、P6–P19 | 完成 | 核心事实链、扩展边界、公开协议、命名和文档已经收敛 |
+| P5 | 待完成 | 真实 Treeland/Deepin 环境回归 |
 
 已实现的稳定边界：
 
@@ -48,7 +43,7 @@ uv run --with pytest pytest -q
 
 | 关注点 | 入口 |
 | --- | --- |
-| MCP 注册与依赖组装 | `src/mcp_autogui/mcp_autogui_main.py` |
+| MCP 注册与依赖组装 | `src/mcp_autogui/mcp_autogui_main.py`、`src/mcp_autogui/runtime_description.py` |
 | 公开与诊断协议 | `src/mcp_autogui/facade.py`、`src/mcp_autogui/protocol_response.py` |
 | 单步事务与有界运行 | `src/mcp_autogui/core/orchestrator.py` |
 | Proposal、Decision、Receipt | `src/mcp_autogui/core/transaction.py` |
@@ -64,12 +59,12 @@ uv run --with pytest pytest -q
 主路径应能直接读成：
 
 ```text
-Facade
+AutoUIFacade
   → CoreOrchestrator
       → observe → propose → ActionGate.decide
-          ├─ deny / confirm / stale → TaskState
-          └─ allow → ActionExecutor → Receipt
-                                      → Evidence → Assertion → TaskState
+          ├─ deny / confirm / stale / invalid → TaskState
+          └─ allow → ActionExecutor → ExecutionReceipt
+                                      → EvidenceRecord → AssertionResult → TaskState
 ```
 
 模块之间传递领域对象或不可变对象引用，不传“类似 receipt”的临时结构。Repository 保存当前运行态，
@@ -101,46 +96,6 @@ Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路�
 扩展不得增加第二套公开状态、错误码 registry 或平台条件分支。未知 provider、重复注册和无效配置必须
 在启动时失败。
 
-## P18 最终边界收敛（完成）
-
-P18 没有增加领域状态或改变事实链，只完成以下边界收敛：
-
-- desktop backend 通过 `DesktopTransactionRunner` 发起事务，不持有完整 Core runtime。
-- `gui_run` 与 `gui_diagnostic` 使用独立分派路径。
-- Core 不再构造 MCP response envelope，失败通过带 `ReasonCode` 的类型传递。
-- 架构测试约束 Core、adapter、desktop backend 和 Facade 的依赖方向。
-
-验收结果：主事务无需进入平台实现即可阅读；公开路径只按 `TaskState` 约简；全量自动化测试通过。
-
-## P19 命名与可读性收敛（计划）
-
-P19 只解决名称误导、只读描述耦合和文档重复，不拆分稳定事务，不增加领域状态，不引入新的错误码体系。
-
-### P19a：统一入口与响应命名（完成）
-
-- `AutoUIFacade` 明确覆盖 `gui_run` 和 `gui_diagnostic` 两类入口。
-- `protocol_response.py` 同时容纳公开 response reducer 与诊断 response builder。
-- `OperationFailure` 表达应用操作失败，避免被理解为 MCP transport 或 schema 损坏。
-- compositor 接口统一为 `CompositorPort`；`TreelandAdapter` 等具体实现保留 adapter 后缀。
-
-验收：只看类名和文件名即可区分公开响应、诊断响应、port 接口和 adapter 实现；协议字段保持兼容。
-
-### P19b：收口只读运行描述（完成）
-
-- Facade 不再逐项读取 compositor、executor、provider、gate 和 context builder 的内部属性。
-- 组装层通过冻结的 `RuntimeDescription` 生成能力、provider ID、策略 profile 和 context strategy 快照。
-- 运行描述只服务于 `describe`；每次读取返回独立数据，不保存或参与任务状态。
-
-验收：新增 provider 或 backend 时，只修改组装与描述构造，不修改 Facade 的内部属性访问列表。
-
-### P19c：保持实现文档克制
-
-- 已完成阶段只保留目标、稳定结果和验收结论。
-- 逐提交改动、排障过程和中间方案由 Git 历史承担。
-- 当前文档只维护阅读入口、扩展规则、未完成计划和发布前待办。
-
-验收：实现文档可以从头顺序阅读，不需要从阶段日志中反推当前架构。
-
 ## P5 真实环境回归
 
 代码边界收敛后，发布前仍需完成真实 Treeland/Deepin 回归：
@@ -150,4 +105,8 @@ P19 只解决名称误导、只读描述耦合和文档重复，不拆分稳定�
 3. 按 `manual-test-guide.md` 执行 V2-01～V2-10，并保存必要 trace 与 artifact 引用。
 4. 将证书、代理、桌面会话或外部服务问题记为环境阻塞；领域失败按 ReasonCode 与 Attribution 归因。
 
-详细实施历史由 Git 提交记录承担，不在本文维护第二份变更日志。
+## 文档维护
+
+- 架构文档只描述稳定设计，不记录实施进度。
+- 本文只维护当前实现、阅读入口、扩展方式和发布前待办。
+- 逐提交改动、排障过程和中间方案由 Git 历史承担。
