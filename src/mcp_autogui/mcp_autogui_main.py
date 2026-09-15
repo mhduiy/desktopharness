@@ -3,7 +3,9 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
+from .core.action_gate import DEFAULT_POLICY_PROFILES
 from .core.audit import audit_components_from_config
+from .core.context_builder import ContextBuilder
 from .core.orchestrator import CoreOrchestrator
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND, create_desktop_backend
 from .desktop_transactions import CoreDesktopTransactionRunner
@@ -13,6 +15,7 @@ from .provider_registry import (
     create_evidence_providers,
     create_proposal_provider,
 )
+from .runtime_description import RuntimeDescription
 
 
 def mcp_autogui_main(
@@ -61,7 +64,18 @@ def mcp_autogui_main(
         store=store,
         ledger=ledger,
     )
-    facade = AutoUIFacade(runtime, effective_config=effective_config)
+    runtime_description = RuntimeDescription.from_components(
+        compositor=compositor,
+        executor=desktop_backend.executor,
+        proposal_provider=proposal_runtime.provider,
+        frame_provider=desktop_backend.frame_provider,
+        policy_providers=desktop_backend.policy_providers,
+        evidence_providers=evidence_providers,
+        policy_profiles=DEFAULT_POLICY_PROFILES,
+        context_strategies=ContextBuilder.STRATEGIES,
+        effective_config=effective_config,
+    )
+    facade = AutoUIFacade(runtime, runtime_description)
     desktop_tools = desktop_backend.create_tools(
         CoreDesktopTransactionRunner(runtime, run_blocking),
         run_blocking,

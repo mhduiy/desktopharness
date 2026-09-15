@@ -125,11 +125,11 @@ P19 只解决名称误导、只读描述耦合和文档重复，不拆分稳定�
 
 验收：只看类名和文件名即可区分公开响应、诊断响应、port 接口和 adapter 实现；协议字段保持兼容。
 
-### P19b：收口只读运行描述
+### P19b：收口只读运行描述（完成）
 
 - Facade 不再逐项读取 compositor、executor、provider、gate 和 context builder 的内部属性。
-- 由组装层提供一个只读运行描述，包含能力、provider ID、策略 profile 和 context strategy。
-- 运行描述只用于 `describe`，不得成为第二个运行时状态仓库。
+- 组装层通过冻结的 `RuntimeDescription` 生成能力、provider ID、策略 profile 和 context strategy 快照。
+- 运行描述只服务于 `describe`；每次读取返回独立数据，不保存或参与任务状态。
 
 验收：新增 provider 或 backend 时，只修改组装与描述构造，不修改 Facade 的内部属性访问列表。
 

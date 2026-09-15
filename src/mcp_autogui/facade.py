@@ -18,6 +18,7 @@ from .core.transaction import (
 )
 from .core.orchestrator import CoreOrchestrator
 from .protocol_response import diagnostic_response, reduce_public_response
+from .runtime_description import RuntimeDescription
 
 
 _ACTION_ALIASES = {
@@ -35,11 +36,10 @@ class AutoUIFacade:
     def __init__(
         self,
         runtime: CoreOrchestrator,
-        *,
-        effective_config: dict[str, Any] | None = None,
+        runtime_description: RuntimeDescription,
     ) -> None:
         self.runtime = runtime
-        self.effective_config = effective_config
+        self._runtime_description = runtime_description
 
     def handle(self, operation: str, **kwargs: Any) -> dict[str, Any]:
         """Handle the compact task-lifecycle API."""
@@ -313,48 +313,10 @@ class AutoUIFacade:
         return resolved_task
 
     def _store_description(self) -> str:
-        description = {
-            "protocol_version": 2,
-            "schema_version": "1",
-            "schema_revision": "2.1-p4",
-            "adapter": to_primitive(self.runtime.compositor.descriptor),
-            "capabilities": {
-                "pointer": self.runtime.executor is not None,
-                "keyboard": self.runtime.executor is not None,
-                "window_geometry": (
-                    self.runtime.compositor.descriptor.capabilities.desktop_geometry
-                ),
-                "frame": self.runtime.frame_provider is not None,
-                "child_control_semantics": (
-                    self.runtime.compositor.descriptor.capabilities.child_controls
-                ),
-            },
-            "providers": {
-                "proposal": _component_id(
-                    self.runtime.proposal_provider, "provider_id"
-                ),
-                "frame": _component_id(self.runtime.frame_provider, "provider_id"),
-                "policy": [
-                    _component_id(item, "provider_id")
-                    for item in self.runtime.policy_providers
-                ],
-                "evidence": [
-                    {
-                        "provider_id": item.provider_id,
-                        "fact_paths": sorted(item.fact_paths),
-                    }
-                    for item in self.runtime.evidence_providers
-                ],
-                "executor": _component_id(self.runtime.executor, "executor_id"),
-            },
-            "actions": [item.value for item in ActionType],
-            "operations": sorted(_PUBLIC_OPERATIONS),
-            "diagnostic_operations": sorted(_DIAGNOSTIC_OPERATIONS),
-            "context_strategies": sorted(self.runtime.context_builder.STRATEGIES),
-            "policy_profiles": sorted(self.runtime.gate.policy_profiles),
-        }
-        if self.effective_config is not None:
-            description["effective_config"] = self.effective_config
+        description = self._runtime_description.to_dict()
+        description["actions"] = [item.value for item in ActionType]
+        description["operations"] = sorted(_PUBLIC_OPERATIONS)
+        description["diagnostic_operations"] = sorted(_DIAGNOSTIC_OPERATIONS)
         return self.runtime.store.put(description, prefix="description")
 
     def _diagnostic_response(
@@ -473,12 +435,6 @@ def parse_task_contract(value: dict[str, Any]) -> TaskContract:
         verification_profile=str(value.get("verification_profile") or "default"),
         policy_overrides=dict(value.get("policy_overrides") or {}),
     )
-
-
-def _component_id(component: Any, attribute: str) -> str | None:
-    if component is None:
-        return None
-    return str(getattr(component, attribute, type(component).__name__))
 
 
 def _normalize_operation(operation: str) -> str:

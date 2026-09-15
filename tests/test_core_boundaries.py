@@ -82,3 +82,18 @@ class CoreBoundaryTests(unittest.TestCase):
                 for argument in (*arguments.args, *arguments.kwonlyargs)
             }
             self.assertNotIn("diagnostic", parameter_names)
+
+    def test_facade_describe_does_not_inspect_runtime_components(self):
+        facade = FACADE.read_text(encoding="utf-8")
+
+        for component in (
+            "compositor",
+            "executor",
+            "proposal_provider",
+            "frame_provider",
+            "policy_providers",
+            "evidence_providers",
+            "context_builder",
+            "gate",
+        ):
+            self.assertNotIn(f"self.runtime.{component}", facade)

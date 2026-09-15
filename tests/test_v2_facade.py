@@ -28,6 +28,7 @@ from mcp_autogui.core.orchestrator import CoreOrchestrator
 from mcp_autogui.core.store import ObjectStore
 from mcp_autogui.facade import AutoUIFacade, parse_action_proposal
 from mcp_autogui.adapters.proposal.qwen_cua import QwenCUAProposalProvider
+from mcp_autogui.runtime_description import RuntimeDescription
 
 
 class Compositor:
@@ -92,6 +93,24 @@ class ProposalProvider:
         )
 
 
+def runtime_description_for(runtime, effective_config=None):
+    return RuntimeDescription.from_components(
+        compositor=runtime.compositor,
+        executor=runtime.executor,
+        proposal_provider=runtime.proposal_provider,
+        frame_provider=runtime.frame_provider,
+        policy_providers=runtime.policy_providers,
+        evidence_providers=runtime.evidence_providers,
+        policy_profiles=runtime.gate.policy_profiles,
+        context_strategies=runtime.context_builder.STRATEGIES,
+        effective_config=effective_config,
+    )
+
+
+def facade_for(runtime):
+    return AutoUIFacade(runtime, runtime_description_for(runtime))
+
+
 class PolicyProvider:
     provider_id = "fixture-policy"
 
@@ -117,7 +136,7 @@ TASK = {
 class FacadeTests(unittest.TestCase):
     def setUp(self):
         self.runtime = CoreOrchestrator(Compositor(), Executor())
-        self.facade = AutoUIFacade(self.runtime)
+        self.facade = facade_for(self.runtime)
 
     def test_describe_exposes_capabilities_separately_from_task_permissions(self):
         public = self.facade.handle("describe")
@@ -130,6 +149,18 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
         self.assertIn("pointer.click", response["object"]["actions"])
         self.assertEqual(response["object"]["operations"], ["confirm", "describe", "reset", "run", "status"])
+
+    def test_runtime_description_is_an_immutable_snapshot(self):
+        effective_config = {"transport": {"port": 8651}}
+        description = runtime_description_for(self.runtime, effective_config)
+
+        effective_config["transport"]["port"] = 9999
+        first_read = description.to_dict()
+        first_read["capabilities"]["pointer"] = False
+
+        second_read = description.to_dict()
+        self.assertEqual(second_read["effective_config"]["transport"]["port"], 8651)
+        self.assertTrue(second_read["capabilities"]["pointer"])
 
     def test_compact_operations_return_references_and_trace_expands_them(self):
         observed = self.facade.handle_diagnostic("observe", task_contract=TASK)
@@ -181,7 +212,7 @@ class FacadeTests(unittest.TestCase):
             proposal_provider=ProposalProvider(),
             policy_providers=(PolicyProvider(),),
         )
-        facade = AutoUIFacade(runtime)
+        facade = facade_for(runtime)
         response = facade.handle("run", task_contract=TASK, max_iterations=1)
 
         self.assertEqual(response["status"], "running")
@@ -195,7 +226,7 @@ class FacadeTests(unittest.TestCase):
             proposal_provider=ProposalProvider(),
             policy_providers=(PolicyProvider(),),
         )
-        facade = AutoUIFacade(runtime)
+        facade = facade_for(runtime)
 
         response = facade.handle("run", task_contract=TASK, max_iterations=1)
         stored_result = runtime.store.require(response["object_ref"])
