@@ -103,16 +103,16 @@ class FacadeTests(unittest.TestCase):
         self.facade = GuiRunFacade(self.runtime)
 
     def test_describe_exposes_capabilities_separately_from_task_permissions(self):
-        response = self.facade.handle("describe", diagnostic=True)
+        response = self.facade.handle_diagnostic("describe")
         self.assertEqual(response["protocol_version"], 2)
-        self.assertEqual(response["object"]["schema_revision"], "2.1-p3")
+        self.assertEqual(response["object"]["schema_revision"], "2.1-p4")
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
         self.assertIn("pointer.click", response["object"]["actions"])
-        self.assertEqual(response["object"]["recommended_operations"], ["run", "status", "confirm", "reset"])
+        self.assertEqual(response["object"]["operations"], ["confirm", "describe", "reset", "run", "status"])
 
     def test_compact_operations_return_references_and_trace_expands_them(self):
-        observed = self.facade.handle("observe", task_contract=TASK)
-        proposed = self.facade.handle(
+        observed = self.facade.handle_diagnostic("observe", task_contract=TASK)
+        proposed = self.facade.handle_diagnostic(
             "propose",
             task_id="portable-task",
             proposal={
@@ -125,21 +125,21 @@ class FacadeTests(unittest.TestCase):
                 "claimed_intent": "navigation",
             },
         )
-        decided = self.facade.handle(
+        decided = self.facade.handle_diagnostic(
             "decide", task_id="portable-task", proposal_id=proposed["object_ref"]
         )
 
         self.assertEqual(proposed["status"], "running")
         self.assertEqual(proposed["task_state"], "running")
-        self.assertNotIn("attribution_refs", proposed)
+        self.assertIn("attribution_refs", proposed)
         # Controller intent is still a claim without independent semantic evidence.
         self.assertEqual(decided["status"], "needs-confirmation")
-        expanded = self.facade.handle(
+        expanded = self.facade.handle_diagnostic(
             "trace", task_id="portable-task", object_ref=proposed["object_ref"]
         )
         self.assertEqual(expanded["object"]["action"]["type"], "pointer.click")
 
-        pending = self.facade.handle(
+        pending = self.facade.handle_diagnostic(
             "execute", task_id="portable-task", proposal_id=proposed["object_ref"]
         )
         delivered = self.facade.handle(
@@ -164,8 +164,14 @@ class FacadeTests(unittest.TestCase):
         response = facade.handle("run", task_contract=TASK, max_iterations=1, diagnostic=True)
 
         self.assertEqual(response["status"], "running")
-        self.assertEqual(len(response["object"]["iterations"]), 1)
+        self.assertNotIn("object", response)
         self.assertEqual(response["retry"]["required_action"], "continue-run")
+
+    def test_public_operations_reject_controller_stage_operations(self):
+        response = self.facade.handle("observe", task_contract=TASK)
+
+        self.assertEqual(response["status"], "failed")
+        self.assertEqual(response["error"]["code"], ReasonCode.UNSUPPORTED_OPERATION)
 
     def test_legacy_proposal_fields_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "semantic_intent"):

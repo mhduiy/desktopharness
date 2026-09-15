@@ -21,6 +21,7 @@ from .core.models import (
     to_primitive,
 )
 from .core.orchestrator import CoreOrchestrator, response_envelope
+from .public_response import reduce_public_response
 
 
 _ACTION_ALIASES = {
@@ -28,6 +29,8 @@ _ACTION_ALIASES = {
     "keyboard.keys": "keyboard.key",
     "keyboard.shortcuts": "keyboard.shortcut",
 }
+_PUBLIC_OPERATIONS = frozenset({"describe", "run", "status", "confirm", "reset"})
+_DIAGNOSTIC_OPERATIONS = frozenset({"describe", "observe", "propose", "decide", "execute", "evaluate", "trace"})
 
 
 class GuiRunFacade:
@@ -41,18 +44,21 @@ class GuiRunFacade:
         self.effective_config = effective_config
 
     def handle(self, operation: str, **kwargs: Any) -> dict[str, Any]:
+        """Handle the compact task-lifecycle API."""
+        normalized = _normalize_operation(operation)
+        if normalized not in _PUBLIC_OPERATIONS:
+            return self._public_failure(
+                normalized,
+                ReasonCode.UNSUPPORTED_OPERATION,
+                "unsupported public gui_run operation; use gui_diagnostic for controller internals",
+                "call-run-status-confirm-or-reset",
+            )
+        kwargs["diagnostic"] = False
         try:
-            return self._handle(operation, **kwargs)
+            return self._reduce_public(self._handle(normalized, **kwargs))
         except KeyError as exc:
-            return response_envelope(
-                operation,
-                "failed",
-                error={
-                    "code": ReasonCode.OBJECT_NOT_FOUND,
-                    "message": str(exc),
-                    "retry": False,
-                    "required_action": "describe-or-create-task",
-                },
+            return self._public_failure(
+                normalized, ReasonCode.OBJECT_NOT_FOUND, str(exc), "describe-or-create-task"
             )
         except (ValueError, PermissionError, RuntimeError) as exc:
             message = str(exc)
@@ -64,10 +70,34 @@ class GuiRunFacade:
                 code, retry, required = ReasonCode.UNSUPPORTED_OPERATION, False, "call-describe"
             else:
                 code, retry, required = ReasonCode.CONTROLLER_TASK_CONTRACT_INVALID, False, "correct-request"
+            return self._public_failure(normalized, code, message, required, retry=retry)
+
+    def handle_diagnostic(self, operation: str, **kwargs: Any) -> dict[str, Any]:
+        """Handle explicit controller diagnostics without reducing their facts."""
+        normalized = _normalize_operation(operation)
+        if normalized not in _DIAGNOSTIC_OPERATIONS:
             return response_envelope(
-                operation,
+                normalized,
                 "failed",
-                error={"code": code, "message": message, "retry": retry, "required_action": required},
+                error={
+                    "code": ReasonCode.UNSUPPORTED_OPERATION,
+                    "message": "unsupported gui_diagnostic operation",
+                    "retry": False,
+                    "required_action": "call-describe-observe-propose-decide-execute-evaluate-or-trace",
+                },
+            )
+        kwargs["diagnostic"] = True
+        try:
+            return self._handle(normalized, **kwargs)
+        except KeyError as exc:
+            return response_envelope(
+                normalized, "failed", error={"code": ReasonCode.OBJECT_NOT_FOUND, "message": str(exc)}
+            )
+        except (ValueError, PermissionError, RuntimeError) as exc:
+            return response_envelope(
+                normalized,
+                "failed",
+                error={"code": ReasonCode.CONTROLLER_TASK_CONTRACT_INVALID, "message": str(exc)},
             )
 
     def _handle(
@@ -84,13 +114,11 @@ class GuiRunFacade:
         diagnostic: bool = False,
         max_iterations: int | None = None,
     ) -> dict[str, Any]:
-        operation = operation.strip().lower()
-        operation = {"assess": "decide", "verify": "evaluate"}.get(operation, operation)
         if operation == "describe":
             description = {
                 "protocol_version": 2,
                 "schema_version": "1",
-                "schema_revision": "2.1-p3",
+                "schema_revision": "2.1-p4",
                 "adapter": to_primitive(self.runtime.compositor.descriptor),
                 "capabilities": {
                     "pointer": self.runtime.executor is not None,
@@ -112,8 +140,8 @@ class GuiRunFacade:
                     "executor": _component_id(self.runtime.executor, "executor_id"),
                 },
                 "actions": [item.value for item in ActionType],
-                "operations": ["describe", "observe", "propose", "decide", "execute", "evaluate", "run", "status", "confirm", "reset", "trace"],
-                "recommended_operations": ["run", "status", "confirm", "reset"],
+                "operations": sorted(_PUBLIC_OPERATIONS),
+                "diagnostic_operations": sorted(_DIAGNOSTIC_OPERATIONS),
                 "context_strategies": sorted(self.runtime.context_builder.STRATEGIES),
                 "policy_profiles": sorted(self.runtime.gate.policy_profiles),
             }
@@ -254,6 +282,27 @@ class GuiRunFacade:
                 ]
         return response
 
+    def _reduce_public(self, response: dict[str, Any]) -> dict[str, Any]:
+        return reduce_public_response(
+            response["operation"],
+            response["status"],
+            task_state=response.get("task_state"),
+            object_ref=response.get("object_ref"),
+            error=response.get("error"),
+            retry=response.get("retry"),
+        )
+
+    @staticmethod
+    def _public_failure(
+        operation: str, code: ReasonCode, message: str, required_action: str, *, retry: bool = False
+    ) -> dict[str, Any]:
+        return reduce_public_response(
+            operation,
+            "failed",
+            task_state=None,
+            error={"code": code, "message": message, "retry": retry, "required_action": required_action},
+        )
+
     def _last_object_ref(self, task_id: str, event_type: str) -> str:
         return next(
             event.object_ref
@@ -303,6 +352,10 @@ def _component_id(component: Any, attribute: str) -> str | None:
     if component is None:
         return None
     return str(getattr(component, attribute, type(component).__name__))
+
+
+def _normalize_operation(operation: str) -> str:
+    return {"assess": "decide", "verify": "evaluate"}.get(operation.strip().lower(), operation.strip().lower())
 
 
 def _recovery_for(code: ReasonCode) -> dict[str, Any]:

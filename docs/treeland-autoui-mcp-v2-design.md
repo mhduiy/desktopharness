@@ -150,15 +150,15 @@ Guard 只重检动作依赖条件。条件失效产生新的 `PolicyDecision(sta
 
 ## 公开协议
 
-通用工具为 `gui_run`。普通调用使用：
+普通调用通过 `gui_run`，只使用：
 
 ```text
 run → status → confirm → reset
 ```
 
-`observe`、`propose`、`decide`、`execute`、`evaluate` 和 `trace` 是诊断/测试操作。默认响应仅包含
-操作状态、`task_state` 和必要引用；`diagnostic=true` 或 `trace` 才展开内部对象和 Attribution。
-`describe` 返回 schema revision、能力、provider 和推荐操作。
+`gui_diagnostic` 承担 `observe`、`propose`、`decide`、`execute`、`evaluate` 和 `trace`，仅用于诊断或测试。
+`gui_run` 的响应由 `Domain Result + TaskState` 统一约简，只包含公开状态、`task_state`、必要引用和恢复信息；
+它不返回 Guard、Attribution 或原始领域对象。`gui_diagnostic(describe)` 可展开 schema revision、能力和 provider。
 
 ## 配置与审计
 

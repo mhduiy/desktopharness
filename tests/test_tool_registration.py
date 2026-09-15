@@ -99,6 +99,7 @@ class ToolRegistrationTests(unittest.TestCase):
             set(mcp.tools),
             {
                 "gui_run",
+                "gui_diagnostic",
                 "desktop_capabilities_list",
                 "desktop_shortcut_invoke",
                 "desktop_applications_list",
@@ -162,7 +163,7 @@ class ToolRegistrationTests(unittest.TestCase):
             )
 
         self.assertNotIn("omniparser_click", mcp.functions)
-        self.assertEqual(len(mcp.tools), 5)
+        self.assertEqual(len(mcp.tools), 6)
 
     def test_json_evidence_configuration_can_disable_compositor_provider(self):
         mcp = self.compose()
@@ -172,7 +173,7 @@ class ToolRegistrationTests(unittest.TestCase):
                 evidence_provider_config={"compositor_window": {"enabled": False}},
             )
 
-        response = asyncio.run(mcp.functions["gui_run"]("describe", diagnostic=True))
+        response = asyncio.run(mcp.functions["gui_diagnostic"]("describe"))
         self.assertEqual(response["status"], "ok")
         self.assertEqual(response["object"]["providers"]["evidence"], [])
 

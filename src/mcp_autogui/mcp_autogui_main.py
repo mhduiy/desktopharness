@@ -214,23 +214,38 @@ def mcp_autogui_main(
         operation: str,
         task_id: str = '',
         task_contract: dict | None = None,
+        proposal_id: str = '',
+        confirmed: bool = False,
+        strategy: str = 'compact',
+        max_iterations: int | None = None,
+    ) -> dict:
+        """运行紧凑任务生命周期：describe、run、status、confirm、reset。"""
+        return await run_blocking(
+            facade.handle,
+            operation,
+            task_id=task_id,
+            task_contract=task_contract,
+            proposal_id=proposal_id,
+            confirmed=confirmed,
+            strategy=strategy,
+            max_iterations=max_iterations,
+        )
+
+    @mcp.tool()
+    async def gui_diagnostic(
+        operation: str,
+        task_id: str = '',
+        task_contract: dict | None = None,
         proposal: dict | None = None,
         proposal_id: str = '',
         confirmed: bool = False,
         strategy: str = 'compact',
         object_ref: str = '',
-        diagnostic: bool = False,
         max_iterations: int | None = None,
     ) -> dict:
-        """运行统一 AutoUI 协议操作。
-
-        支持 ``describe``、``observe``、``propose``、``decide``、
-        ``execute``、``evaluate``/``verify``、``run``、``status``、``reset``、
-        ``trace``。默认返回对象引用；传 ``diagnostic=true`` 或使用 ``trace``
-        查看详细对象。
-        """
+        """诊断控制器阶段：observe、propose、decide、execute、evaluate、trace。"""
         return await run_blocking(
-            facade.handle,
+            facade.handle_diagnostic,
             operation,
             task_id=task_id,
             task_contract=task_contract,
@@ -239,7 +254,6 @@ def mcp_autogui_main(
             confirmed=confirmed,
             strategy=strategy,
             object_ref=object_ref,
-            diagnostic=diagnostic,
             max_iterations=max_iterations,
         )
 

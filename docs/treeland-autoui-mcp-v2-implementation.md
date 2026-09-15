@@ -21,7 +21,7 @@
 | P7b | 完成 | Repository 意图 API、TransactionRecorder 与 event_type 唯一事件类别已收敛 |
 | P7c | 完成 | 桌面执行/reset 串行，运行态原子更新，trace 保持只读 |
 | P8 | 完成 | Provider 注册表负责校验与构造；入口只按配置组装 |
-| P9 | 未开始 | 集中公开状态映射，分离默认操作与诊断操作 |
+| P9 | 完成 | `gui_run` 收敛为生命周期入口，`gui_diagnostic` 隔离内部阶段 |
 | P10 | 未开始 | 按领域边界拆分 models.py，不改变通信协议 |
 
 ## 运行与预检
@@ -135,6 +135,8 @@ uv run --with pytest pytest -q
 - 默认响应不返回 Guard、Attribution、原始对象或内部 pipeline stage。
 
 验收：所有公开状态只有 `running`、`needs-confirmation`、`retrying`、`completed`、`failed`；诊断测试与默认协议测试相互独立。
+
+完成：纯 `reduce_public_response` 以领域结果和 TaskState 生成公开响应；`gui_run` 仅接受生命周期操作，逐阶段执行与 trace 移入 `gui_diagnostic`。公开响应不再由 `diagnostic` 参数展开内部对象。
 
 ### P10：拆分领域模型文件
 
