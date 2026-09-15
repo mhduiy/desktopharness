@@ -103,13 +103,10 @@ class CoreOrchestrator:
             require_standard_fact_path(assertion.path)
             if assertion.operator not in SUPPORTED_OPERATORS:
                 raise ValueError(f"unsupported assertion operator: {assertion.operator}")
-        if contract.task_id in self._tasks.contracts:
-            raise ValueError(f"task already exists: {contract.task_id}")
-        self._tasks.contracts[contract.task_id] = contract
-        self._tasks.states[contract.task_id] = TaskState(task_id=contract.task_id)
+        state = self._tasks.register(contract)
         contract_ref = self.store.put(contract, prefix="task-contract")
         self._append_event(contract.task_id, "task.created", contract_ref)
-        return self._tasks.states[contract.task_id]
+        return state
 
     def observe(self, task_id: str) -> CanonicalSnapshot:
         self._require_task(task_id)
@@ -118,7 +115,7 @@ class CoreOrchestrator:
     def adopt_snapshot(self, task_id: str, snapshot: CanonicalSnapshot) -> CanonicalSnapshot:
         """Record a canonical observation captured by an adapter-aware facade."""
         self._require_task(task_id)
-        self._tasks.latest_snapshots[task_id] = snapshot
+        self._tasks.set_snapshot(task_id, snapshot)
         self.store.put(snapshot, object_ref=snapshot.snapshot_id)
         self._append_event(
             task_id,
@@ -133,11 +130,11 @@ class CoreOrchestrator:
         if self.proposal_provider is None:
             raise RuntimeError("proposal provider is unavailable")
         contract = self._require_task(task_id)
-        state = self._tasks.states[task_id]
-        snapshot = self._tasks.latest_snapshots.get(task_id) or self.observe(task_id)
+        state = self._tasks.state(task_id)
+        snapshot = self._tasks.snapshot(task_id) or self.observe(task_id)
         frame = self.frame_provider.capture_frame() if self.frame_provider is not None else None
         if frame is not None:
-            self._tasks.latest_frames[task_id] = frame
+            self._tasks.set_frame(task_id, frame)
             self.store.put(frame, object_ref=frame.frame_id)
             self._append_event(
                 task_id,
@@ -153,8 +150,8 @@ class CoreOrchestrator:
             self.ledger.events(task_id),
             based_on_snapshot=snapshot.snapshot_id,
             frame=frame,
-            recent_receipt=self._tasks.latest_receipts.get(task_id),
-            assertion_results=self._tasks.latest_results.get(task_id, ()),
+            recent_receipt=self._tasks.latest_receipt(task_id),
+            assertion_results=self._tasks.recent_results(task_id),
             spatial_projection={
                 "snapshot_id": snapshot.snapshot_id,
                 "coordinate_space": {
@@ -187,17 +184,14 @@ class CoreOrchestrator:
         proposal = self.proposal_provider.propose(context)
         if proposal.based_on_snapshot != snapshot.snapshot_id:
             raise ValueError("proposal must reference the current snapshot")
-        self._tasks.provider_proposals.add(proposal.proposal_id)
-        self.submit_proposal(task_id, proposal)
+        self.submit_proposal(task_id, proposal, provider_owned=True)
         return proposal
 
     def submit_proposal(
-        self, task_id: str, proposal: ActionProposal, *, caused_by: tuple[str, ...] = ()
+        self, task_id: str, proposal: ActionProposal, *, caused_by: tuple[str, ...] = (), provider_owned: bool = False
     ) -> ActionProposal:
         self._require_task(task_id)
-        if proposal.proposal_id in self._tasks.proposal_tasks:
-            raise ValueError("proposal already submitted")
-        self._tasks.proposal_tasks[proposal.proposal_id] = task_id
+        self._tasks.submit_proposal(task_id, proposal.proposal_id, provider_owned=provider_owned)
         self.store.put(proposal, object_ref=proposal.proposal_id)
         causal_events = caused_by or self._causes_for(proposal.based_on_snapshot)
         if proposal.debug_ref:
@@ -221,13 +215,13 @@ class CoreOrchestrator:
         return proposal
 
     def decide(self, proposal_id: str) -> PolicyDecision:
-        task_id = self._tasks.proposal_tasks.get(proposal_id)
+        task_id = self._tasks.task_for_proposal(proposal_id)
         if task_id is None:
             raise KeyError(proposal_id)
         proposal = self.store.require(proposal_id)
         tags: list[SemanticTag] = []
         for provider in self.policy_providers:
-            tags.extend(provider.independent_tags(proposal, self._tasks.contracts[task_id]))
+            tags.extend(provider.independent_tags(proposal, self._tasks.contract(task_id)))
         snapshot = self.store.get(proposal.based_on_snapshot)
         if not isinstance(snapshot, CanonicalSnapshot):
             resolution = self.gate.resolve_semantics(proposal, tags)
@@ -240,11 +234,11 @@ class CoreOrchestrator:
             guard = None
         else:
             decision, guard, resolution = self.gate.decide(
-                proposal, self._tasks.contracts[task_id], snapshot, tags
+                proposal, self._tasks.contract(task_id), snapshot, tags
             )
         self.store.put(resolution, object_ref=resolution.semantic_resolution_id)
         if guard is not None:
-            self._tasks.guards[guard.guard_id] = guard
+            self._tasks.record_guard(guard)
             self.store.put(guard, object_ref=guard.guard_id)
         self._store_decision(
             task_id,
@@ -283,16 +277,18 @@ class CoreOrchestrator:
         confirmed: bool = False,
         current_snapshot: CanonicalSnapshot | None = None,
     ) -> PolicyDecision | ExecutionReceipt:
-        task_id = self._tasks.proposal_tasks.get(proposal_id)
+        task_id = self._tasks.task_for_proposal(proposal_id)
         if task_id is None:
             raise KeyError(proposal_id)
-        existing_receipt = self._tasks.terminal_receipts.get(proposal_id)
+        existing_receipt = self._tasks.terminal_receipt(proposal_id)
         if existing_receipt is not None:
             return existing_receipt
         proposal: ActionProposal = self.store.require(proposal_id)
-        decision = self._tasks.decisions.get(proposal_id) or self.decide(proposal_id)
+        decision = self._tasks.decision(proposal_id) or self.decide(proposal_id)
         if decision.status == PolicyStatus.CONFIRM and confirmed:
-            previous_ref = self._tasks.decision_refs[proposal_id]
+            previous_ref = self._tasks.decision_ref(proposal_id)
+            if previous_ref is None:
+                raise RuntimeError("confirmed proposal has no recorded decision")
             decision = replace(
                 decision, status=PolicyStatus.ALLOW, reason_code=ReasonCode.USER_CONFIRMED
             )
@@ -303,8 +299,8 @@ class CoreOrchestrator:
                 caused_by=self._causes_for(previous_ref),
                 snapshot_id=proposal.based_on_snapshot,
             )
-            self._tasks.states[task_id] = replace(
-                self._tasks.states[task_id], status=TaskStatus.RUNNING
+            self._tasks.update_state(
+                task_id, lambda state: replace(state, status=TaskStatus.RUNNING)
             )
         if decision.status != PolicyStatus.ALLOW:
             self._record_non_execution(task_id, proposal, decision)
@@ -315,7 +311,7 @@ class CoreOrchestrator:
             if current_snapshot is not None
             else self.observe(task_id)
         )
-        guard = self._tasks.guards.get(decision.guard_ref or "")
+        guard = self._tasks.guard(decision.guard_ref or "")
         if guard is not None:
             guard_error = self.gate.recheck(guard, latest)
             if guard_error is not None:
@@ -324,7 +320,7 @@ class CoreOrchestrator:
                     task_id,
                     proposal,
                     stale,
-                    caused_by=self._causes_for(self._tasks.decision_refs[proposal_id]),
+                    caused_by=self._causes_for(self._tasks.decision_ref(proposal_id) or proposal_id),
                     snapshot_id=latest.snapshot_id,
                 )
                 self._record_non_execution(task_id, proposal, stale)
@@ -346,8 +342,8 @@ class CoreOrchestrator:
             )
         self._record_receipt(task_id, receipt)
         if receipt.status == ExecutionStatus.DELIVERED:
-            self._tasks.states[task_id] = replace(
-                self._tasks.states[task_id], step=self._tasks.states[task_id].step + 1
+            self._tasks.update_state(
+                task_id, lambda state: replace(state, step=state.step + 1)
             )
         return receipt
 
@@ -398,8 +394,8 @@ class CoreOrchestrator:
                 snapshot_id=snapshot.snapshot_id,
             )
             result_events.append(event.event_id)
-        state = self.reducer.reduce(contract, self._tasks.states[task_id], results)
-        self._tasks.latest_results[task_id] = results
+        state = self.reducer.reduce(contract, self._tasks.state(task_id), results)
+        self._tasks.set_results(task_id, results)
         self._transactions.state(
             task_id, state, caused_by=tuple(result_events), snapshot_id=snapshot.snapshot_id
         )
@@ -448,16 +444,16 @@ class CoreOrchestrator:
         proposal = self.propose(task_id, strategy=strategy)
         decision = self.decide(proposal.proposal_id)
         if decision.status not in {PolicyStatus.ALLOW, PolicyStatus.CONFIRM}:
-            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._tasks.states[task_id]}
+            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._tasks.state(task_id)}
         if decision.status == PolicyStatus.CONFIRM and not confirmed:
-            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._tasks.states[task_id]}
+            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._tasks.state(task_id)}
         execution = self.execute(proposal.proposal_id, confirmed=confirmed)
         if isinstance(execution, PolicyDecision):
             return {
                 "proposal": proposal,
                 "decision": execution,
                 "receipt": None,
-                "state": self._tasks.states[task_id],
+                "state": self._tasks.state(task_id),
             }
         receipt = execution
         evidence, results, state = self.evaluate(task_id)
@@ -480,7 +476,7 @@ class CoreOrchestrator:
     ) -> dict[str, Any]:
         """Run bounded single-action transactions until the task blocks or terminates."""
         contract = self._require_task(task_id)
-        remaining = max(0, contract.limits.max_steps - self._tasks.states[task_id].step)
+        remaining = max(0, contract.limits.max_steps - self._tasks.state(task_id).step)
         limit = remaining if max_iterations is None else min(remaining, max_iterations)
         if limit < 1:
             raise ValueError("no execution iterations remain")
@@ -489,7 +485,7 @@ class CoreOrchestrator:
         previous_signature: object = None
         active_strategy = strategy
         for _ in range(limit):
-            before = set(self._tasks.states[task_id].completed_assertions)
+            before = set(self._tasks.state(task_id).completed_assertions)
             outcome = self.run_step(task_id, confirmed=confirmed, strategy=active_strategy)
             proposal = outcome["proposal"]
             decision = outcome["decision"]
@@ -498,7 +494,7 @@ class CoreOrchestrator:
             outcomes.append(
                 {
                     "proposal_ref": proposal.proposal_id,
-                    "decision_ref": self._tasks.decision_refs.get(proposal.proposal_id),
+                    "decision_ref": self._tasks.decision_ref(proposal.proposal_id),
                     "execution_ref": receipt.execution_id if receipt is not None else None,
                     "task_status": state.status.value,
                 }
@@ -552,45 +548,46 @@ class CoreOrchestrator:
 
     def status(self, task_id: str) -> TaskState:
         self._require_task(task_id)
-        return self._tasks.states[task_id]
+        return self._tasks.state(task_id)
 
     def has_task(self, task_id: str) -> bool:
-        return task_id in self._tasks.contracts
+        return self._tasks.has_task(task_id)
 
     def task_contract(self, task_id: str) -> TaskContract:
         return self._require_task(task_id)
 
     def latest_snapshot(self, task_id: str) -> CanonicalSnapshot | None:
         self._require_task(task_id)
-        return self._tasks.latest_snapshots.get(task_id)
+        return self._tasks.snapshot(task_id)
 
     def reset(self, task_id: str) -> None:
-        self._require_task(task_id)
-        resetter = getattr(self.proposal_provider, "reset", None)
-        if callable(resetter):
-            resetter(task_id)
-        reset_ref = self.store.put(
-            {
-                "task_id": task_id,
-                "previous_state": to_primitive(self._tasks.states[task_id]),
-                "reason": "controller-reset",
-            },
-            prefix="task-reset",
-        )
-        self._append_event(
-            task_id,
-            "task.reset",
-            reset_ref,
-            caused_by=tuple(event.event_id for event in self.ledger.events(task_id)[-1:]),
-        )
-        self._tasks.clear_task(task_id)
-        self._audit.clear_task(task_id)
+        with self._execution_lock:
+            self._require_task(task_id)
+            resetter = getattr(self.proposal_provider, "reset", None)
+            if callable(resetter):
+                resetter(task_id)
+            reset_ref = self.store.put(
+                {
+                    "task_id": task_id,
+                    "previous_state": to_primitive(self._tasks.state(task_id)),
+                    "reason": "controller-reset",
+                },
+                prefix="task-reset",
+            )
+            self._append_event(
+                task_id,
+                "task.reset",
+                reset_ref,
+                caused_by=tuple(event.event_id for event in self.ledger.events(task_id)[-1:]),
+            )
+            self._tasks.clear_task(task_id)
+            self._audit.clear_task(task_id)
 
     def _require_task(self, task_id: str) -> TaskContract:
         try:
-            return self._tasks.contracts[task_id]
-        except KeyError as exc:
-            raise KeyError(f"unknown task: {task_id}") from exc
+            return self._tasks.contract(task_id)
+        except KeyError:
+            raise
 
     def _store_decision(
         self,
@@ -611,20 +608,24 @@ class CoreOrchestrator:
         proposal: ActionProposal,
         decision: PolicyDecision,
     ) -> None:
-        if proposal.proposal_id not in self._tasks.provider_finalized:
-            self._record_provider_decision(task_id, decision)
-            self._tasks.provider_finalized.add(proposal.proposal_id)
+        if not self._tasks.finalized(proposal.proposal_id):
+            if not self._transactions.notify_decision(self.proposal_provider, task_id, decision):
+                self._record_attribution(
+                    task_id, AttributionEventKind.ERROR, "protocol", "unknown",
+                    ReasonCode.MODEL_PROTOCOL_INVALID, "Proposal provider rejected decision feedback",
+                )
+            self._tasks.finalize(proposal.proposal_id)
         if decision.status == PolicyStatus.CONFIRM:
-            self._tasks.states[task_id] = replace(
-                self._tasks.states[task_id], status=TaskStatus.NEEDS_CONFIRMATION
+            self._tasks.update_state(
+                task_id, lambda state: replace(state, status=TaskStatus.NEEDS_CONFIRMATION)
             )
         elif decision.status in {PolicyStatus.DENY, PolicyStatus.INVALID}:
-            self._tasks.states[task_id] = replace(
-                self._tasks.states[task_id], status=TaskStatus.FAILED
+            self._tasks.update_state(
+                task_id, lambda state: replace(state, status=TaskStatus.FAILED)
             )
         elif decision.status == PolicyStatus.STALE:
-            self._tasks.states[task_id] = replace(
-                self._tasks.states[task_id], status=TaskStatus.RUNNING
+            self._tasks.update_state(
+                task_id, lambda state: replace(state, status=TaskStatus.RUNNING)
             )
         reason_code = decision.reason_code
         environment_codes = {
@@ -663,26 +664,6 @@ class CoreOrchestrator:
                 "Controller policy did not authorize automatic execution",
             )
 
-    def _record_provider_decision(self, task_id: str, decision: PolicyDecision) -> None:
-        recorder = getattr(self.proposal_provider, "record_decision", None)
-        proposal_owner = self._tasks.proposal_tasks.get(decision.proposal_id)
-        if (
-            callable(recorder)
-            and proposal_owner == task_id
-            and decision.proposal_id in self._tasks.provider_proposals
-        ):
-            try:
-                recorder(task_id, decision)
-            except Exception:
-                self._record_attribution(
-                    task_id,
-                    AttributionEventKind.ERROR,
-                    "protocol",
-                    "unknown",
-                    ReasonCode.MODEL_PROTOCOL_INVALID,
-                    "Proposal provider rejected decision feedback",
-                )
-
     def _record_receipt(
         self,
         task_id: str,
@@ -695,22 +676,18 @@ class CoreOrchestrator:
             task_id,
             receipt,
             caused_by=self._causes_for(
-                self._tasks.decision_refs.get(receipt.proposal_id, receipt.proposal_id)
+                self._tasks.decision_ref(receipt.proposal_id) or receipt.proposal_id
             ),
             terminal=terminal,
         )
-        recorder = getattr(self.proposal_provider, "record_execution", None)
-        proposal_owner = self._tasks.proposal_tasks.get(receipt.proposal_id)
+        proposal_owner = self._tasks.task_for_proposal(receipt.proposal_id)
         if (
             notify_provider
-            and callable(recorder)
             and proposal_owner == task_id
-            and receipt.proposal_id in self._tasks.provider_proposals
-            and receipt.proposal_id not in self._tasks.provider_finalized
+            and self._tasks.provider_owns(receipt.proposal_id)
+            and not self._tasks.finalized(receipt.proposal_id)
         ):
-            try:
-                recorder(task_id, receipt)
-            except Exception:
+            if not self._transactions.notify_receipt(self.proposal_provider, task_id, receipt):
                 # The receipt remains authoritative. Feedback failure affects
                 # only the model adapter's future context and is diagnostic.
                 self._record_attribution(

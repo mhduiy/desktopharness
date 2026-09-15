@@ -22,8 +22,7 @@ class TransactionRecorder:
         snapshot_id: str,
     ) -> str:
         reference = self._audit.store.put(decision, prefix="policy-decision")
-        self._tasks.decisions[proposal.proposal_id] = decision
-        self._tasks.decision_refs[proposal.proposal_id] = reference
+        self._tasks.record_decision(proposal.proposal_id, decision, reference)
         self._audit.append(
             task_id,
             "decision.created",
@@ -42,15 +41,35 @@ class TransactionRecorder:
         caused_by: tuple[str, ...],
         terminal: bool,
     ) -> None:
-        self._tasks.latest_receipts[task_id] = receipt
-        if terminal:
-            self._tasks.terminal_receipts[receipt.proposal_id] = receipt
+        self._tasks.record_receipt(task_id, receipt, terminal=terminal)
         self._audit.store.put(receipt, object_ref=receipt.execution_id)
         self._audit.append(task_id, "execution.completed", receipt.execution_id, caused_by=caused_by)
 
     def state(self, task_id: str, state: TaskState, *, caused_by: tuple[str, ...], snapshot_id: str) -> None:
-        self._tasks.states[task_id] = state
+        self._tasks.set_state(state)
         reference = self._audit.store.put(state, prefix="task-state")
         self._audit.append(
             task_id, "task.transitioned", reference, caused_by=caused_by, snapshot_id=snapshot_id
         )
+
+    @staticmethod
+    def notify_decision(provider: object | None, task_id: str, decision: PolicyDecision) -> bool:
+        callback = getattr(provider, "record_decision", None)
+        if not callable(callback):
+            return True
+        try:
+            callback(task_id, decision)
+        except Exception:
+            return False
+        return True
+
+    @staticmethod
+    def notify_receipt(provider: object | None, task_id: str, receipt: ExecutionReceipt) -> bool:
+        callback = getattr(provider, "record_execution", None)
+        if not callable(callback):
+            return True
+        try:
+            callback(task_id, receipt)
+        except Exception:
+            return False
+        return True

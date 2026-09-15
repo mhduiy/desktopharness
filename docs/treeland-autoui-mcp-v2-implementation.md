@@ -18,8 +18,8 @@
 | P5 | 进行中 | `autoui-smoke` 实际调用只读 `gui_run(describe)`；待真实环境回归 |
 | P6 | 完成 | 协议对象强制 ReasonCode；Core、adapter 与 Facade 不再构造裸错误码 |
 | P7a | 完成 | 运行态索引迁入 TaskRepository；事件、引用与归因迁入 AuditRecorder |
-| P7b | 进行中 | 封装运行态意图操作，收敛事务记录与重复事件类型 |
-| P7c | 未开始 | 明确桌面事务与任务状态的并发边界 |
+| P7b | 完成 | Repository 意图 API、TransactionRecorder 与 event_type 唯一事件类别已收敛 |
+| P7c | 完成 | 桌面执行/reset 串行，运行态原子更新，trace 保持只读 |
 | P8 | 未开始 | 为 proposal 与 evidence provider 建立统一组装注册机制 |
 | P9 | 未开始 | 集中公开状态映射，分离默认操作与诊断操作 |
 | P10 | 未开始 | 按领域边界拆分 models.py，不改变通信协议 |
@@ -89,7 +89,7 @@ uv run --with pytest pytest -q
 
 验收：Core 对外方法与事实链不变；Orchestrator 不再直接维护成组状态或审计字典；完整测试通过。
 
-#### P7b：封装状态意图与事务记录（进行中）
+#### P7b：封装状态意图与事务记录（完成）
 
 目标：编排器表达流程，而不是读写运行态容器或构造审计投影。
 
@@ -100,14 +100,15 @@ uv run --with pytest pytest -q
 
 验收：Orchestrator 不访问 repository 内部集合，不构造 Ledger object type；Decision/Receipt 的因果链、provider feedback 和 reset 回归通过。
 
-#### P7c：明确并发事务边界
+#### P7c：明确并发事务边界（完成）
 
 目标：并发请求不会在观察、Guard 重检与输入注入之间产生不可解释的桌面状态。
 
 - 明确全局 desktop transaction lock 覆盖的最小范围：observe、Guard recheck、execute。
 - `TaskRepository` 对单任务状态更新提供原子操作；不把全局桌面锁扩展到模型调用或证据收集。
-- 为并发执行、重复 Receipt、reset 与 trace 建立回归测试。
-- 文档说明服务的并发语义和调用方可依赖的顺序保证。
+- 跨任务执行和 reset 与执行竞争已有回归测试；terminal Receipt 仍按 proposal 去重。
+- trace 只读取不可变对象引用，不获取桌面事务锁；reset 后的 task trace 按正常的对象不存在语义失败。
+- 调用方可依赖桌面副作用串行；模型调用、证据收集和 trace 不被桌面锁阻塞。
 
 验收：同一任务和跨任务的并发测试可重复通过；桌面副作用保持串行，读取和模型调用不被不必要阻塞。
 

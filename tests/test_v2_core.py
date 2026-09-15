@@ -1,5 +1,7 @@
 import unittest
 from dataclasses import replace
+from threading import Event, Lock, Thread
+from time import sleep
 
 from mcp_autogui.adapters.compositor.treeland import TreelandAdapter
 from mcp_autogui.adapters.backends.treeland_deepin import DdeApplicationLauncher
@@ -293,6 +295,85 @@ class EvidenceAndStateTests(unittest.TestCase):
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_reset_waits_for_an_inflight_desktop_execution(self):
+        class BlockingExecutor(FakeExecutor):
+            def __init__(self):
+                self.started = Event()
+                self.release = Event()
+
+            def execute(self, proposal):
+                self.started.set()
+                self.release.wait(timeout=1)
+                return super().execute(proposal)
+
+        executor = BlockingExecutor()
+        runtime = CoreOrchestrator(FakeCompositor([snapshot()] * 4), executor)
+        runtime.policy_providers = (
+            type("Policy", (), {"independent_tags": lambda *_: [
+                SemanticTag("navigation", "fixture", None, EvidenceConfidence.DETERMINISTIC)
+            ]})(),
+        )
+        runtime.register_task(contract())
+        observed = runtime.observe("task-1")
+        proposal = click_proposal(observed.snapshot_id)
+        runtime.submit_proposal("task-1", proposal)
+        execution = Thread(target=runtime.execute, args=(proposal.proposal_id,))
+        execution.start()
+        self.assertTrue(executor.started.wait(timeout=1))
+        reset = Thread(target=runtime.reset, args=("task-1",))
+        reset.start()
+        sleep(0.02)
+        self.assertTrue(runtime.has_task("task-1"))
+        executor.release.set()
+        execution.join(timeout=1)
+        reset.join(timeout=1)
+        self.assertFalse(runtime.has_task("task-1"))
+
+    def test_cross_task_execution_is_serialized_at_desktop_boundary(self):
+        class BlockingExecutor(FakeExecutor):
+            def __init__(self):
+                self._lock = Lock()
+                self.active = 0
+                self.maximum_active = 0
+
+            def execute(self, proposal):
+                with self._lock:
+                    self.active += 1
+                    self.maximum_active = max(self.maximum_active, self.active)
+                sleep(0.02)
+                with self._lock:
+                    self.active -= 1
+                return super().execute(proposal)
+
+        executor = BlockingExecutor()
+        runtime = CoreOrchestrator(FakeCompositor([snapshot()] * 8), executor)
+        runtime.policy_providers = (
+            type(
+                "Policy",
+                (),
+                {
+                    "independent_tags": lambda _self, _proposal, _contract: [
+                        SemanticTag("navigation", "fixture", None, EvidenceConfidence.DETERMINISTIC)
+                    ]
+                },
+            )(),
+        )
+        runtime.register_task(contract())
+        runtime.register_task(replace(contract(), task_id="task-2"))
+        proposals = []
+        for task_id in ("task-1", "task-2"):
+            observed = runtime.observe(task_id)
+            proposal = click_proposal(observed.snapshot_id)
+            runtime.submit_proposal(task_id, proposal)
+            proposals.append(proposal)
+        threads = [Thread(target=runtime.execute, args=(proposal.proposal_id,)) for proposal in proposals]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(executor.maximum_active, 1)
+
     def test_application_launch_uses_the_single_injected_executor(self):
         class RecordingExecutor(FakeExecutor):
             def __init__(self):

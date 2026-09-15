@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from threading import RLock
+from typing import Any, Callable
 
 from .models import (
     AssertionResult,
@@ -19,33 +20,138 @@ class TaskRepository:
     """Own runtime-only task indexes; persisted facts remain in the audit store."""
 
     def __init__(self) -> None:
-        self.contracts: dict[str, TaskContract] = {}
-        self.states: dict[str, TaskState] = {}
-        self.latest_snapshots: dict[str, CanonicalSnapshot] = {}
-        self.latest_frames: dict[str, Any] = {}
-        self.proposal_tasks: dict[str, str] = {}
-        self.provider_proposals: set[str] = set()
-        self.provider_finalized: set[str] = set()
-        self.decisions: dict[str, PolicyDecision] = {}
-        self.decision_refs: dict[str, str] = {}
-        self.guards: dict[str, ProposalGuard] = {}
-        self.latest_receipts: dict[str, ExecutionReceipt] = {}
-        self.terminal_receipts: dict[str, ExecutionReceipt] = {}
-        self.latest_results: dict[str, tuple[AssertionResult, ...]] = {}
+        self._lock = RLock()
+        self._contracts: dict[str, TaskContract] = {}
+        self._states: dict[str, TaskState] = {}
+        self._latest_snapshots: dict[str, CanonicalSnapshot] = {}
+        self._latest_frames: dict[str, Any] = {}
+        self._proposal_tasks: dict[str, str] = {}
+        self._provider_proposals: set[str] = set()
+        self._provider_finalized: set[str] = set()
+        self._decisions: dict[str, PolicyDecision] = {}
+        self._decision_refs: dict[str, str] = {}
+        self._guards: dict[str, ProposalGuard] = {}
+        self._latest_receipts: dict[str, ExecutionReceipt] = {}
+        self._terminal_receipts: dict[str, ExecutionReceipt] = {}
+        self._latest_results: dict[str, tuple[AssertionResult, ...]] = {}
+
+    def register(self, contract: TaskContract) -> TaskState:
+        with self._lock:
+            if contract.task_id in self._contracts:
+                raise ValueError(f"task already exists: {contract.task_id}")
+            state = TaskState(task_id=contract.task_id)
+            self._contracts[contract.task_id] = contract
+            self._states[contract.task_id] = state
+            return state
+
+    def has_task(self, task_id: str) -> bool:
+        return task_id in self._contracts
+
+    def contract(self, task_id: str) -> TaskContract:
+        try:
+            return self._contracts[task_id]
+        except KeyError as exc:
+            raise KeyError(f"unknown task: {task_id}") from exc
+
+    def state(self, task_id: str) -> TaskState:
+        with self._lock:
+            self.contract(task_id)
+            return self._states[task_id]
+
+    def set_state(self, state: TaskState) -> None:
+        self.update_state(state.task_id, lambda _current: state)
+
+    def update_state(
+        self, task_id: str, update: Callable[[TaskState], TaskState]
+    ) -> TaskState:
+        with self._lock:
+            self.contract(task_id)
+            state = update(self._states[task_id])
+            if state.task_id != task_id:
+                raise ValueError("state update must preserve task_id")
+            self._states[task_id] = state
+            return state
+
+    def snapshot(self, task_id: str) -> CanonicalSnapshot | None:
+        return self._latest_snapshots.get(task_id)
+
+    def set_snapshot(self, task_id: str, snapshot: CanonicalSnapshot) -> None:
+        self._latest_snapshots[task_id] = snapshot
+
+    def set_frame(self, task_id: str, frame: Any) -> None:
+        self._latest_frames[task_id] = frame
+
+    def latest_receipt(self, task_id: str) -> ExecutionReceipt | None:
+        return self._latest_receipts.get(task_id)
+
+    def recent_results(self, task_id: str) -> tuple[AssertionResult, ...]:
+        return self._latest_results.get(task_id, ())
+
+    def set_results(self, task_id: str, results: tuple[AssertionResult, ...]) -> None:
+        self._latest_results[task_id] = results
+
+    def submit_proposal(self, task_id: str, proposal_id: str, *, provider_owned: bool = False) -> None:
+        with self._lock:
+            if proposal_id in self._proposal_tasks:
+                raise ValueError("proposal already submitted")
+            self._proposal_tasks[proposal_id] = task_id
+            if provider_owned:
+                self._provider_proposals.add(proposal_id)
+
+    def task_for_proposal(self, proposal_id: str) -> str | None:
+        return self._proposal_tasks.get(proposal_id)
+
+    def provider_owns(self, proposal_id: str) -> bool:
+        return proposal_id in self._provider_proposals
+
+    def finalized(self, proposal_id: str) -> bool:
+        return proposal_id in self._provider_finalized
+
+    def finalize(self, proposal_id: str) -> None:
+        self._provider_finalized.add(proposal_id)
+
+    def decision(self, proposal_id: str) -> PolicyDecision | None:
+        return self._decisions.get(proposal_id)
+
+    def record_decision(self, proposal_id: str, decision: PolicyDecision, reference: str) -> None:
+        self._decisions[proposal_id] = decision
+        self._decision_refs[proposal_id] = reference
+
+    def decision_ref(self, proposal_id: str) -> str | None:
+        return self._decision_refs.get(proposal_id)
+
+    def guard(self, guard_id: str) -> ProposalGuard | None:
+        return self._guards.get(guard_id)
+
+    def record_guard(self, guard: ProposalGuard) -> None:
+        self._guards[guard.guard_id] = guard
+
+    def terminal_receipt(self, proposal_id: str) -> ExecutionReceipt | None:
+        return self._terminal_receipts.get(proposal_id)
+
+    def record_receipt(self, task_id: str, receipt: ExecutionReceipt, *, terminal: bool) -> None:
+        with self._lock:
+            self._latest_receipts[task_id] = receipt
+            if terminal:
+                self._terminal_receipts[receipt.proposal_id] = receipt
 
     def clear_task(self, task_id: str) -> None:
-        self.contracts.pop(task_id, None)
-        self.states.pop(task_id, None)
-        self.latest_snapshots.pop(task_id, None)
-        self.latest_frames.pop(task_id, None)
-        self.latest_receipts.pop(task_id, None)
-        self.latest_results.pop(task_id, None)
-        for proposal_id, owner in tuple(self.proposal_tasks.items()):
+        with self._lock:
+            self._clear_task(task_id)
+
+    def _clear_task(self, task_id: str) -> None:
+        self._contracts.pop(task_id, None)
+        self._states.pop(task_id, None)
+        self._latest_snapshots.pop(task_id, None)
+        self._latest_frames.pop(task_id, None)
+        self._latest_receipts.pop(task_id, None)
+        self._latest_results.pop(task_id, None)
+        for proposal_id, owner in tuple(self._proposal_tasks.items()):
             if owner != task_id:
                 continue
-            self.proposal_tasks.pop(proposal_id, None)
-            self.provider_proposals.discard(proposal_id)
-            self.provider_finalized.discard(proposal_id)
-            self.decisions.pop(proposal_id, None)
-            self.decision_refs.pop(proposal_id, None)
-            self.terminal_receipts.pop(proposal_id, None)
+            self._proposal_tasks.pop(proposal_id, None)
+            self._provider_proposals.discard(proposal_id)
+            self._provider_finalized.discard(proposal_id)
+            self._decisions.pop(proposal_id, None)
+            self._decision_refs.pop(proposal_id, None)
+            self._terminal_receipts.pop(proposal_id, None)
