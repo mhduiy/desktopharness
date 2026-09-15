@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
 
 from .core.store import ObjectStore
 from .ports.compositor import CompositorAdapter
@@ -16,6 +16,27 @@ from .ports.policy import PolicyProvider
 DEFAULT_DESKTOP_BACKEND = "treeland-deepin"
 
 
+class DesktopTools(Protocol):
+    """Backend-owned implementations behind the stable desktop MCP tools."""
+
+    def list_capabilities(self, category: str = "") -> list[dict[str, Any]]: ...
+
+    async def invoke_shortcut(self, capability_id: str) -> dict[str, Any]: ...
+
+    def list_applications(self, query: str = "", limit: int = 30) -> list[dict[str, Any]]: ...
+
+    async def launch_application(
+        self,
+        app_id: str,
+        expected_active_app_id: str = "",
+        application_wait_timeout_s: float = 3.0,
+    ) -> dict[str, Any]: ...
+
+
+RunBlocking = Callable[..., Awaitable[Any]]
+DesktopToolsFactory = Callable[[Any, RunBlocking], DesktopTools]
+
+
 @dataclass(frozen=True)
 class DesktopBackend:
     """Ports contributed by one desktop-session backend."""
@@ -24,16 +45,9 @@ class DesktopBackend:
     compositor: CompositorAdapter
     executor: ActionExecutor
     frame_provider: FrameProvider
-    read_observation_state: Callable[[], object]
     capture_observation: Callable[[], tuple[bytes, tuple[int, int], object]]
-    active_window_summary: Callable[[object], dict[str, object] | None]
     policy_providers: tuple[PolicyProvider, ...]
-    list_capabilities: Callable[[], list[dict[str, Any]]]
-    find_capability: Callable[[str], dict[str, Any] | None]
-    list_applications: Callable[[], list[dict[str, Any]]]
-    validate_application_id: Callable[[str], str]
-    platform_resolver: Callable[[str], dict[str, Any] | None] | None = None
-    application_result_for: Callable[[str], object | None] | None = None
+    create_tools: DesktopToolsFactory
 
 
 DesktopBackendFactory = Callable[..., DesktopBackend]

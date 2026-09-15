@@ -97,14 +97,9 @@ class ServerConfigTests(unittest.TestCase):
                 compositor=object(),
                 executor=object(),
                 frame_provider=object(),
-                read_observation_state=lambda: {},
                 capture_observation=lambda: (b"", (0, 0), {}),
-                active_window_summary=lambda _state: None,
                 policy_providers=(),
-                list_capabilities=lambda: [],
-                find_capability=lambda _identifier: None,
-                list_applications=lambda: [],
-                validate_application_id=lambda value: value,
+                create_tools=lambda _runtime, _run_blocking: object(),
             )
 
         register_desktop_backend(backend_id, factory)
@@ -121,3 +116,4 @@ class ServerConfigTests(unittest.TestCase):
         self.assertEqual(backend.backend_id, backend_id)
         self.assertIn(backend_id, available_desktop_backends())
         self.assertEqual(captured["tree_reader"](), {})
+        self.assertTrue(callable(backend.create_tools))

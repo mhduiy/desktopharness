@@ -12,6 +12,7 @@ from ..compositor.treeland import read_treeland_tree
 from ..executor import PyAutoGUIExecutor
 from ..frame import PyAutoGUIFrameProvider
 from ..platform import DeepinKeybindingProvider
+from .treeland_deepin_tools import TreelandDeepinTools
 from ...core.models import (
     ActionProposal,
     ActionType,
@@ -205,6 +206,23 @@ def create_backend(
                 }
         return None
 
+    capture_observation = lambda: _capture_observation(input_module, tree_reader)
+
+    def create_tools(runtime: Any, run_blocking: Any) -> TreelandDeepinTools:
+        return TreelandDeepinTools(
+            runtime,
+            artifact_store,
+            run_blocking,
+            capability_loader=capability_loader,
+            capability_resolver=capability_resolver,
+            application_loader=load_desktop_application_catalogue,
+            application_validator=validate_application_id,
+            application_result_for=application_launcher.result_for,
+            read_observation_state=tree_reader,
+            capture_observation=capture_observation,
+            active_window_summary=active_window_summary,
+        )
+
     return DesktopBackend(
         backend_id=BACKEND_ID,
         compositor=compositor,
@@ -216,16 +234,9 @@ def create_backend(
             application_handler=application_launcher.launch,
         ),
         frame_provider=PyAutoGUIFrameProvider(input_module, artifact_store),
-        read_observation_state=tree_reader,
-        capture_observation=lambda: _capture_observation(input_module, tree_reader),
-        active_window_summary=active_window_summary,
+        capture_observation=capture_observation,
         policy_providers=(platform_provider,),
-        list_capabilities=capability_loader,
-        find_capability=capability_resolver,
-        list_applications=load_desktop_application_catalogue,
-        validate_application_id=validate_application_id,
-        platform_resolver=platform_provider.resolve,
-        application_result_for=application_launcher.result_for,
+        create_tools=create_tools,
     )
 
 

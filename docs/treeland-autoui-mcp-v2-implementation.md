@@ -27,7 +27,7 @@
 | P12 | 完成 | CLI 强制 `--config`，旧运行变量只能被忽略并告警 |
 | P13 | 完成 | Core 直导入完成，LangChain 明确为可选 MCP 客户端扩展 |
 | P14 | 完成 | 领域模型恢复常规排版，协议与序列化保持不变 |
-| P15 | 未开始 | 快捷键与应用启动随 DesktopBackend 扩展 |
+| P15 | 完成 | 快捷键与应用启动随 DesktopBackend 扩展 |
 | P16 | 未开始 | TaskState 成为公开状态的唯一来源 |
 | P17 | 未开始 | 实现文档只保留当前结构与未完成工作 |
 
@@ -220,6 +220,8 @@ uv run --with pytest pytest -q
 - 不为了减少文件行数拆出零散 helper；每个桌面后端的工具作为完整扩展单元组装。
 
 验收：替换 desktop backend 时，快捷键目录、应用目录和执行方式随 backend 一起替换，无需修改 MCP 入口或 Core；现有六个 MCP 工具及行为不变。
+
+完成：`DesktopBackend` 通过 `create_tools` 提供平台工具对象；Treeland/Deepin 后端拥有快捷键、应用目录、`dde-am` 启动事务与验证逻辑。MCP 入口只保留四个稳定桌面工具的薄转发。
 
 ### P16：统一公开状态来源
 
