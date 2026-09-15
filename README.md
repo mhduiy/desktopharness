@@ -9,25 +9,26 @@ command. Ensure `treeland-debug` is available in the MCP server's `PATH`.
 
 ## AutoUI v2 generic transaction core
 
-The server now also registers the compositor-neutral `gui_run` facade. Its
-core depends only on canonical models and replaceable ports; Treeland,
+The server now also registers the compositor-neutral `gui_run` lifecycle facade
+and the explicit `gui_diagnostic` inspection facade. Its core depends only on
+canonical models and replaceable ports; Treeland,
 Qwen-CUA, PyAutoGUI, Deepin keybindings, and `dde-am` are adapters selected by
 the application composition root.
 
-The explicit v2 flow is:
+The default v2 lifecycle is:
 
-1. `gui_run(operation="observe", task_contract=...)`
-2. `gui_run(operation="propose", task_id=...)` for Qwen, or submit one controller proposal with the same operation
-3. `gui_run(operation="decide", task_id=..., proposal_id=...)`
-4. `gui_run(operation="execute", task_id=..., proposal_id=...)`
-5. `gui_run(operation="evaluate", task_id=...)`
+1. `gui_run(operation="run", task_contract=...)`
+2. `gui_run(operation="status", task_id=...)`
+3. `gui_run(operation="confirm", task_id=..., proposal_id=...)` when confirmation is required
+4. `gui_run(operation="reset", task_id=...)` to begin again
 
-Normal responses are compact envelopes containing an `object_ref`. Use
-`gui_run(operation="trace", object_ref=...)` for diagnostic expansion. The
-default policy requires confirmation when an action has no independent
-semantic evidence; a model's `semantic_intent` is only a claim. An execution
-receipt with `status=delivered` confirms input injection, not application or
-task success.
+Normal responses are compact envelopes containing a public task status and an
+`object_ref`. Use `gui_diagnostic` for `observe`, `propose`, `decide`,
+`execute`, `evaluate`, and `trace` when inspecting one controller stage or an
+object. The default policy requires confirmation when an action has no
+independent semantic evidence; a model's `semantic_intent` is only a claim. An
+execution receipt with `status=delivered` confirms input injection, not
+application or task success.
 
 See the [v2 implementation and extension guide](docs/treeland-autoui-mcp-v2-implementation.md)
 and the [v2 design](docs/treeland-autoui-mcp-v2-design.md).
@@ -50,9 +51,10 @@ For comparison with the old deployment, set `CUA_BACKEND_MODE=http` and use
 `CUA_BACKEND_URL`, `CUA_BACKEND_API_KEY`, and `CUA_TLS_VERIFY`. HTTP mode is an
 optional compatibility path, not the default dependency.
 
-All Qwen interaction goes through the unified `gui_run` tool; the legacy
-`qwen_cua_*` tools were removed. The embedded backend is addressed by the
-task contract, and each round produces exactly one canonical action:
+All Qwen interaction goes through the unified lifecycle and diagnostic MCP
+tools; the legacy `qwen_cua_*` tools were removed. The embedded backend is
+addressed by the task contract, and each round produces exactly one canonical
+action:
 
 1. `gui_run(operation="run", task_contract={"task_id": ..., "goal": ...,
    "permissions": {...}, "limits": {"max_steps": 5, "max_retries": 2},
@@ -60,12 +62,11 @@ task contract, and each round produces exactly one canonical action:
    executes bounded single-action transactions:
    observe -> propose (Qwen) -> decide -> guard recheck -> execute ->
    evaluate -> reduce state, until the task blocks or terminates.
-2. Fine-grained control uses the explicit operations instead: `observe`,
-   `propose`, `decide`, `execute`, `evaluate` (or `verify`), `status`,
-   `reset`, and `trace`. Responses return object references; pass
-   `diagnostic=true` or use `trace` to expand a stored object such as the
-   model output (`debug_ref`), the execution receipt, or the assertion
-   results.
+2. Fine-grained inspection uses `gui_diagnostic` instead: `observe`,
+   `propose`, `decide`, `execute`, `evaluate` (or `verify`), and `trace`.
+   It expands stored objects such as model output (`debug_ref`), execution
+   receipts, assertion results, and Attribution. `status` and `reset` remain
+   lifecycle operations on `gui_run`.
 3. `gui_run(operation="reset", task_id=...)` resets the runtime task and the
    embedded Qwen session for a new task.
 

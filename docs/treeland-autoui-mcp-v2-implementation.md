@@ -23,6 +23,9 @@
 | P8 | 完成 | Provider 注册表负责校验与构造；入口只按配置组装 |
 | P9 | 完成 | `gui_run` 收敛为生命周期入口，`gui_diagnostic` 隔离内部阶段 |
 | P10 | 完成 | 领域模型拆分为独立模块，`models` 保持稳定聚合导出 |
+| P11 | 完成 | README 与手工验收指南已切换至公开和诊断双入口 |
+| P12 | 未开始 | 移除 CLI 旧环境变量启动旁路，强制 JSON 配置 |
+| P13 | 未开始 | 收尾模型导入与未接入的 LangChain 扩展边界 |
 
 ## 运行与预检
 
@@ -152,6 +155,38 @@ uv run --with pytest pytest -q
 验收：仅移动定义和更新导入，不改变 schema、序列化结果或运行行为；完整测试通过。
 
 完成：协议基础、desktop、transaction、task、evidence、audit 和 model context 各自独立；`core.models` 仅作兼容聚合，核心基础设施已改为按领域直接导入。重导出身份测试保证现有导入仍指向相同类。
+
+### P11：同步公开调用文档
+
+目标：手工验收和 README 不再指导调用已从 `gui_run` 移出的内部阶段。
+
+- 将 `observe`、`propose`、`decide`、`execute`、`evaluate`、`trace` 示例改为 `gui_diagnostic`。
+- 删除 `diagnostic=true` 的旧用法；以诊断入口展开对象和 Attribution。
+- 对照 `describe` 返回的公开与诊断 operation 列表，增加文档示例检查。
+
+验收：README、手工验收指南和 MCP 工具签名一致；按文档复制的命令不会被 `gui_run` 拒绝。
+
+完成：README 的默认生命周期示例使用 `gui_run`，逐阶段示例使用 `gui_diagnostic`；手工验收指南同步工具范围、trace 调用和 schema revision。
+
+### P12：封闭配置启动路径
+
+目标：非秘密运行配置只能来自 `--config` JSON，不能由 CLI 的旧环境变量分支绕过启动校验。
+
+- 删除 `SSE_HOST`、`MCP_TRANSPORT` 和 `CUA_*` 驱动的无配置启动路径。
+- 无 `--config` 时给出明确错误与迁移提示；密钥和桌面会话资源环境变量仍可使用。
+- 验证启动日志、effective config 与 provider registry 校验总会执行。
+
+验收：所有生产启动都读取 JSON 配置；旧环境变量只能产生忽略告警，不能改变 transport、provider 或证据配置。
+
+### P13：收尾边界与可读性
+
+目标：完成 P10 后的依赖迁移，并明确未接入扩展的维护状态。
+
+- 将 Core 内仍从 `core.models` 聚合导入的模块改为按 desktop、transaction、task、evidence、audit 直接导入。
+- 保留 `core.models` 仅作为外部兼容入口，并以测试保证重导出身份稳定。
+- 明确 `langchain/agent_graph.py` 的使用边界；未接入主链则移至可选扩展或补上集成测试。
+
+验收：Core 内部不再依赖聚合导入；LangChain 扩展要么有可执行入口与测试，要么不位于默认运行包。
 
 ## 回归待办
 
