@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from mcp_autogui.core.models import (
     AdapterCapabilities,
@@ -13,6 +14,7 @@ from mcp_autogui.core.models import (
     Point,
     PolicyDecision,
     PolicyStatus,
+    ProtocolFailure,
     ReasonCode,
     Rect,
     StackingCapabilities,
@@ -208,6 +210,32 @@ class FacadeTests(unittest.TestCase):
 
         self.assertEqual(response["status"], "failed")
         self.assertEqual(response["error"]["code"], ReasonCode.UNSUPPORTED_OPERATION)
+
+    def test_typed_protocol_failure_controls_public_recovery(self):
+        failure = ProtocolFailure(
+            ReasonCode.CAPABILITY_UNAVAILABLE,
+            "message text is not part of classification",
+            retry=False,
+            required_action="install-or-configure-provider",
+        )
+        with patch.object(self.facade, "_handle_public", side_effect=failure):
+            response = self.facade.handle("describe")
+
+        self.assertEqual(response["error"]["code"], ReasonCode.CAPABILITY_UNAVAILABLE)
+        self.assertEqual(response["error"]["required_action"], "install-or-configure-provider")
+
+    def test_untyped_exception_text_does_not_change_reason_code(self):
+        with patch.object(
+            self.facade,
+            "_handle_public",
+            side_effect=RuntimeError(ReasonCode.SNAPSHOT_UNAVAILABLE),
+        ):
+            response = self.facade.handle("describe")
+
+        self.assertEqual(
+            response["error"]["code"],
+            ReasonCode.CONTROLLER_TASK_CONTRACT_INVALID,
+        )
 
     def test_legacy_proposal_fields_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "semantic_intent"):

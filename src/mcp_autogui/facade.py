@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .core.desktop import Point
-from .core.protocol import ReasonCode, new_id, to_primitive
+from .core.protocol import ProtocolFailure, ReasonCode, new_id, to_primitive
 from .core.task import AssertionSpec, TaskContract, TaskLimits, TaskPermissions, TaskStatus
 from .core.transaction import (
     Action,
@@ -16,8 +16,8 @@ from .core.transaction import (
     PolicyDecision,
     PolicyStatus,
 )
-from .core.orchestrator import CoreOrchestrator, response_envelope
-from .public_response import reduce_public_response
+from .core.orchestrator import CoreOrchestrator
+from .public_response import reduce_public_response, response_envelope
 
 
 _ACTION_ALIASES = {
@@ -55,17 +55,21 @@ class GuiRunFacade:
             return self._public_failure(
                 normalized, ReasonCode.OBJECT_NOT_FOUND, str(exc), "describe-or-create-task"
             )
+        except ProtocolFailure as exc:
+            return self._public_failure(
+                normalized,
+                exc.reason_code,
+                str(exc),
+                exc.required_action,
+                retry=exc.retry,
+            )
         except (ValueError, PermissionError, RuntimeError) as exc:
-            message = str(exc)
-            if ReasonCode.SNAPSHOT_UNAVAILABLE in message:
-                code, retry, required = ReasonCode.SNAPSHOT_UNAVAILABLE, True, "capture-new-frame"
-            elif "provider is unavailable" in message or ReasonCode.CAPABILITY_UNAVAILABLE in message:
-                code, retry, required = ReasonCode.CAPABILITY_UNAVAILABLE, False, "install-or-configure-provider"
-            elif "unsupported gui_run operation" in message:
-                code, retry, required = ReasonCode.UNSUPPORTED_OPERATION, False, "call-describe"
-            else:
-                code, retry, required = ReasonCode.CONTROLLER_TASK_CONTRACT_INVALID, False, "correct-request"
-            return self._public_failure(normalized, code, message, required, retry=retry)
+            return self._public_failure(
+                normalized,
+                ReasonCode.CONTROLLER_TASK_CONTRACT_INVALID,
+                str(exc),
+                "correct-request",
+            )
 
     def handle_diagnostic(self, operation: str, **kwargs: Any) -> dict[str, Any]:
         """Handle explicit controller diagnostics without reducing their facts."""
@@ -86,6 +90,17 @@ class GuiRunFacade:
         except KeyError as exc:
             return response_envelope(
                 normalized, "failed", error={"code": ReasonCode.OBJECT_NOT_FOUND, "message": str(exc)}
+            )
+        except ProtocolFailure as exc:
+            return response_envelope(
+                normalized,
+                "failed",
+                error={
+                    "code": exc.reason_code,
+                    "message": str(exc),
+                    "retry": exc.retry,
+                    "required_action": exc.required_action,
+                },
             )
         except (ValueError, PermissionError, RuntimeError) as exc:
             return response_envelope(

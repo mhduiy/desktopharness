@@ -1,4 +1,4 @@
-"""Pure reduction from controller results to the public task protocol."""
+"""MCP-facing response construction outside the application core."""
 
 from __future__ import annotations
 
@@ -8,6 +8,27 @@ from .core.task import TaskStatus
 
 
 PUBLIC_TASK_STATUSES = frozenset(status.value for status in TaskStatus)
+
+
+def response_envelope(
+    operation: str,
+    status: str,
+    *,
+    object_ref: str | None = None,
+    error: dict[str, Any] | None = None,
+    retry: dict[str, Any] | None = None,
+    debug_ref: str | None = None,
+) -> dict[str, Any]:
+    """Build the diagnostic protocol envelope outside the application core."""
+    return {
+        "protocol_version": 2,
+        "operation": operation,
+        "status": status,
+        "object_ref": object_ref,
+        "error": error,
+        "retry": retry,
+        "debug_ref": debug_ref,
+    }
 
 
 def reduce_public_response(

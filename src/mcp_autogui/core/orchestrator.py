@@ -24,7 +24,7 @@ from .audit_models import (
 )
 from .desktop import CanonicalSnapshot
 from .evidence import AssertionResult, AssertionStatus, EvidenceRecord
-from .protocol import ReasonCode, to_primitive
+from .protocol import ProtocolFailure, ReasonCode, to_primitive
 from .task import TaskContract, TaskState, TaskStatus
 from .transaction import (
     ActionProposal, ActionType, ExecutionReceipt, ExecutionStatus, PolicyDecision, PolicyStatus, SemanticTag,
@@ -115,7 +115,12 @@ class CoreOrchestrator:
 
     def propose(self, task_id: str, *, strategy: str = "compact") -> ActionProposal:
         if self.proposal_provider is None:
-            raise RuntimeError("proposal provider is unavailable")
+            raise ProtocolFailure(
+                ReasonCode.CAPABILITY_UNAVAILABLE,
+                "proposal provider is unavailable",
+                retry=False,
+                required_action="install-or-configure-provider",
+            )
         contract = self._require_task(task_id)
         state = self._tasks.state(task_id)
         snapshot = self._tasks.snapshot(task_id) or self.observe(task_id)
@@ -749,23 +754,3 @@ class CoreOrchestrator:
 
     def _latest_execution_causes(self, task_id: str) -> tuple[str, ...]:
         return self._audit.latest_execution_causes(task_id)
-
-
-def response_envelope(
-    operation: str,
-    status: str,
-    *,
-    object_ref: str | None = None,
-    error: dict[str, Any] | None = None,
-    retry: dict[str, Any] | None = None,
-    debug_ref: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "protocol_version": 2,
-        "operation": operation,
-        "status": status,
-        "object_ref": object_ref,
-        "error": error,
-        "retry": retry,
-        "debug_ref": debug_ref,
-    }

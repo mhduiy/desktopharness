@@ -66,3 +66,20 @@ class ReasonCode(StrEnum):
     TARGET_OCCLUDED = "TARGET_OCCLUDED"
     UNSUPPORTED_OPERATION = "UNSUPPORTED_OPERATION"
     USER_CONFIRMED = "USER_CONFIRMED"
+
+
+class ProtocolFailure(RuntimeError):
+    """Typed failure crossing from the application core to a protocol facade."""
+
+    def __init__(
+        self,
+        reason_code: ReasonCode,
+        message: str,
+        *,
+        retry: bool,
+        required_action: str,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.retry = retry
+        self.required_action = required_action

@@ -157,8 +157,9 @@ run → status → confirm → reset
 ```
 
 `gui_diagnostic` 承担 `observe`、`propose`、`decide`、`execute`、`evaluate` 和 `trace`，仅用于诊断或测试。
-`gui_run` 的响应由 `Domain Result + TaskState` 统一约简，只包含公开状态、`task_state`、必要引用和恢复信息；
-它不返回 Guard、Attribution 或原始领域对象。`gui_diagnostic(describe)` 可展开 schema revision、能力和 provider。
+`gui_run` 的任务状态只由 `TaskState` 约简；请求或协议错误可直接归并为 `failed`。响应只包含公开状态、
+`task_state`、必要引用和恢复信息，不返回 Guard、Attribution 或原始领域对象。
+`gui_diagnostic(describe)` 可展开 schema revision、能力和 provider。
 
 ## 配置与审计
 

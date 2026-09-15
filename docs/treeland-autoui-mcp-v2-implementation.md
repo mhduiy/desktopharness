@@ -18,7 +18,7 @@ Treeland/Deepin 会话中完成发布前回归。环境未验收不等于模型�
 | P10–P13 | 领域文件、调用文档、配置入口与可选 LangChain 边界 |
 | P14–P16 | 可读模型、desktop backend 平台工具与 TaskState 状态权威 |
 | P17 | 当前实现文档收敛 |
-| P18 | 进行中：P18a–P18b 已完成；P18c–P18d 待实施 |
+| P18 | 进行中：P18a–P18c 已完成；P18d 待实施 |
 
 已实现的稳定边界：
 
@@ -126,13 +126,16 @@ evaluate；desktop backend 只接收 `DesktopTransactionRunner` 与领域结果�
 完成：Facade 使用独立 `_handle_public` 与 `_handle_diagnostic` 路径；公开操作直接生成 compact response，
 诊断操作单独展开领域对象。两条路径只共享任务注册、describe 数据和纯解析函数。
 
-### P18c：收回协议错误与响应职责
+### P18c：收回协议错误与响应职责（完成）
 
 - 使用一个携带 `ReasonCode` 和恢复建议的轻量协议异常，删除按异常文本猜测错误码的逻辑。
 - 将 `response_envelope` 从 `core/orchestrator.py` 移到 Facade/协议展示层。
 - 同步架构文档：公开状态由 TaskState 决定，只有协议错误可直接归并为 `failed`。
 
 验收：Core 不构造 MCP envelope；相同异常信息文本不会改变 ReasonCode；诊断 schema 保持稳定。
+
+完成：`ProtocolFailure` 显式携带 ReasonCode 与恢复建议；Facade 不再解析异常文本。诊断 envelope 已迁入
+`public_response.py`，架构文档同步以 TaskState 作为任务状态唯一来源。
 
 ### P18d：固化边界并恢复可读性
 
