@@ -26,6 +26,10 @@
 | P11 | 完成 | README 与手工验收指南已切换至公开和诊断双入口 |
 | P12 | 完成 | CLI 强制 `--config`，旧运行变量只能被忽略并告警 |
 | P13 | 完成 | Core 直导入完成，LangChain 明确为可选 MCP 客户端扩展 |
+| P14 | 完成 | 领域模型恢复常规排版，协议与序列化保持不变 |
+| P15 | 未开始 | 快捷键与应用启动随 DesktopBackend 扩展 |
+| P16 | 未开始 | TaskState 成为公开状态的唯一来源 |
+| P17 | 未开始 | 实现文档只保留当前结构与未完成工作 |
 
 ## 运行与预检
 
@@ -191,6 +195,53 @@ uv run --with pytest pytest -q
 验收：Core 内部不再依赖聚合导入；LangChain 扩展要么有可执行入口与测试，要么不位于默认运行包。
 
 完成：Core 实现模块全部按领域直接导入，`core.models`/`core` 只保留外部兼容导出；边界测试防止回退。LangChain 代码明确为独立客户端扩展，不被服务入口导入或启动，并提供单独的使用说明。
+
+### P14：恢复领域模型可读性
+
+目标：代码精简来自职责收敛，而不是压缩排版；领域对象应能被人类快速扫描和评审。
+
+- 将 `transaction.py`、`task.py`、`evidence.py`、`audit_models.py` 和 `context.py` 恢复为一字段一行、枚举一值一行的常规格式。
+- 展开单行条件与异常，不修改类名、字段顺序、默认值、类型和序列化结果。
+- 保持现有领域文件边界，不重新合并 `models.py`，也不新增抽象层。
+
+验收：格式化前后的 dataclass 字段、枚举值和 `to_primitive` 输出完全一致；完整测试通过。
+
+完成：五个领域模型文件已恢复为常规 Python 排版；未改变类名、字段顺序、默认值、枚举值、校验和模块边界。
+
+### P15：由桌面后端提供平台工具
+
+目标：快捷键目录、快捷键执行和应用启动由所选桌面后端提供；`mcp_autogui_main.py` 不理解具体桌面环境的能力与事务。
+
+- `CompositorAdapter` 只负责窗口、坐标、层叠和命中等 canonical observation，不承担快捷键或应用启动。
+- `DesktopBackend` 作为环境能力 bundle，提供 capability catalog、application launcher 和对应的 `ActionExecutor` 路由。
+- Treeland + Deepin 的快捷键与 `dde-am` 启动事务迁入 `adapters/backends/treeland_deepin` 范围；其他后端可提供完全不同的实现。
+- MCP 层只调用当前 backend 暴露的稳定能力，不包含 Deepin capability、热键或应用 ID 的判断逻辑。
+- 保留 `gui_run` 与 `gui_diagnostic` 在 Facade；不增加新的公开工具或状态。
+- 不为了减少文件行数拆出零散 helper；每个桌面后端的工具作为完整扩展单元组装。
+
+验收：替换 desktop backend 时，快捷键目录、应用目录和执行方式随 backend 一起替换，无需修改 MCP 入口或 Core；现有六个 MCP 工具及行为不变。
+
+### P16：统一公开状态来源
+
+目标：公开状态只由 TaskState 和是否发生协议错误决定，不在 Core、Facade 和 response reducer 中重复翻译。
+
+- `CoreOrchestrator.run` 返回事实引用、TaskState 和恢复建议，不再返回手写的任务状态字符串。
+- `PolicyDecision`、`ExecutionReceipt` 和 `AssertionResult` 保持各自领域状态，不新增 ResultStatus 或第二套枚举。
+- `reduce_public_response` 是 `gui_run` 公开状态的唯一映射位置；诊断入口继续展示原始领域状态。
+- 删除 Facade 中重复的 Decision/Receipt → public status 条件分支。
+
+验收：源码中公开五态的映射只有一处；`gui_run` 只输出 `running`、`needs-confirmation`、`retrying`、`completed`、`failed`，诊断对象 schema 不变。
+
+### P17：压缩实现文档
+
+目标：实现指南成为当前维护入口，而不是 P0–P16 的过程日志。
+
+- 保留架构链接、当前状态、运行命令、代码落点、扩展规则和真实环境待办。
+- 已完成阶段压缩为简短交付表；删除重复的目标、步骤、验收和“完成”段落。
+- 详细历史由 Git 提交记录承担，不另建第二份变更日志。
+- 明确保留 P5 真实 Treeland 回归为发布前未完成项。
+
+验收：维护者能在短文档中回答“如何运行、代码在哪里、如何扩展、还缺什么”；内容不重复架构文档和手工验收指南。
 
 ## 回归待办
 
