@@ -4,21 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 
-from .models import (
-    ActionProposal,
-    ActionType,
-    AdapterDescriptor,
-    CanonicalSnapshot,
-    EvidenceConfidence,
-    Point,
-    PolicyDecision,
-    PolicyStatus,
-    ProposalGuard,
-    ReasonCode,
-    SemanticResolution,
-    SemanticTag,
-    TaskContract,
-    new_id,
+from .desktop import AdapterDescriptor, CanonicalSnapshot, Point
+from .evidence import EvidenceConfidence
+from .protocol import ReasonCode, new_id
+from .task import TaskContract
+from .transaction import (
+    ActionProposal, ActionType, PolicyDecision, PolicyStatus, ProposalGuard,
+    SemanticResolution, SemanticTag,
 )
 
 

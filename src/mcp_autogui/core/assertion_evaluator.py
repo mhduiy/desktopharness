@@ -7,16 +7,12 @@ from collections.abc import Sequence
 from typing import Any
 
 from .facts import require_standard_fact_path
-from .models import (
-    AssertionResult,
-    AssertionSpec,
-    AssertionStatus,
-    CanonicalSnapshot,
-    EvidenceConfidence,
-    EvidenceRecord,
-    ExcludedEvidence,
-    utc_now,
+from .desktop import CanonicalSnapshot
+from .evidence import (
+    AssertionResult, AssertionStatus, EvidenceConfidence, EvidenceRecord, ExcludedEvidence,
 )
+from .protocol import utc_now
+from .task import AssertionSpec
 
 
 _CONFIDENCE_RANK = {

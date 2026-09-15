@@ -5,15 +5,10 @@ from __future__ import annotations
 from threading import RLock
 from typing import Any, Callable
 
-from .models import (
-    AssertionResult,
-    CanonicalSnapshot,
-    ExecutionReceipt,
-    PolicyDecision,
-    ProposalGuard,
-    TaskContract,
-    TaskState,
-)
+from .desktop import CanonicalSnapshot
+from .evidence import AssertionResult
+from .task import TaskContract, TaskState
+from .transaction import ExecutionReceipt, PolicyDecision, ProposalGuard
 
 
 class TaskRepository:

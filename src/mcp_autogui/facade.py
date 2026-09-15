@@ -4,22 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .core.models import (
-    Action,
-    ActionProposal,
-    ActionType,
-    AssertionSpec,
-    Point,
-    PolicyDecision,
-    PolicyStatus,
-    ReasonCode,
-    TaskContract,
-    TaskLimits,
-    TaskPermissions,
-    TaskStatus,
-    new_id,
-    to_primitive,
-)
+from .core.desktop import Point
+from .core.protocol import ReasonCode, new_id, to_primitive
+from .core.task import AssertionSpec, TaskContract, TaskLimits, TaskPermissions, TaskStatus
+from .core.transaction import Action, ActionProposal, ActionType, PolicyDecision, PolicyStatus
 from .core.orchestrator import CoreOrchestrator, response_envelope
 from .public_response import reduce_public_response
 

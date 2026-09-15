@@ -5,15 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from .ledger import EventLedger
-from .models import (
-    Attribution,
-    AttributionEventKind,
-    AttributionEvidenceStatus,
-    AttributionOwner,
-    AttributionStage,
-    ReasonCode,
-    new_id,
+from .audit_models import (
+    Attribution, AttributionEventKind, AttributionEvidenceStatus, AttributionOwner, AttributionStage,
 )
+from .protocol import ReasonCode, new_id
 from .store import ObjectStore
 
 

@@ -5,18 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from .models import (
-    AssertionResult,
-    AssertionStatus,
-    ExecutionReceipt,
-    FrameReference,
-    LedgerEvent,
-    ModelContext,
-    TaskContract,
-    TaskState,
-    new_id,
-    to_primitive,
-)
+from .audit_models import LedgerEvent
+from .context import ModelContext
+from .desktop import FrameReference
+from .evidence import AssertionResult, AssertionStatus
+from .protocol import new_id, to_primitive
+from .task import TaskContract, TaskState
+from .transaction import ExecutionReceipt
 
 
 class ContextBuilder:

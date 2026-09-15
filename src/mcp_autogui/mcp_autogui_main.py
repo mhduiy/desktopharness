@@ -7,17 +7,10 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from functools import partial
-from .core.models import (
-    Action,
-    ActionProposal,
-    ActionType,
-    AssertionSpec,
-    Point,
-    TaskContract,
-    TaskLimits,
-    TaskPermissions,
-    new_id,
-)
+from .core.desktop import Point
+from .core.protocol import new_id
+from .core.task import AssertionSpec, TaskContract, TaskLimits, TaskPermissions
+from .core.transaction import Action, ActionProposal, ActionType
 from .core.orchestrator import CoreOrchestrator
 from .core.audit import audit_components_from_config
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND, create_desktop_backend

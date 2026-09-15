@@ -19,28 +19,15 @@ from .assertion_evaluator import AssertionEvaluator, SUPPORTED_OPERATORS
 from .context_builder import ContextBuilder
 from .facts import require_standard_fact_path
 from .ledger import EventLedger
-from .models import (
-    ActionProposal,
-    ActionType,
-    AssertionResult,
-    AssertionStatus,
-    Attribution,
-    AttributionEventKind,
-    AttributionEvidenceStatus,
-    AttributionOwner,
-    AttributionStage,
-    CanonicalSnapshot,
-    EvidenceRecord,
-    ExecutionReceipt,
-    ExecutionStatus,
-    PolicyDecision,
-    PolicyStatus,
-    ReasonCode,
-    SemanticTag,
-    TaskContract,
-    TaskState,
-    TaskStatus,
-    to_primitive,
+from .audit_models import (
+    Attribution, AttributionEventKind, AttributionEvidenceStatus, AttributionOwner, AttributionStage,
+)
+from .desktop import CanonicalSnapshot
+from .evidence import AssertionResult, AssertionStatus, EvidenceRecord
+from .protocol import ReasonCode, to_primitive
+from .task import TaskContract, TaskState, TaskStatus
+from .transaction import (
+    ActionProposal, ActionType, ExecutionReceipt, ExecutionStatus, PolicyDecision, PolicyStatus, SemanticTag,
 )
 from .store import ObjectStore
 from .task_repository import TaskRepository
