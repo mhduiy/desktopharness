@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from .audit_recorder import AuditRecorder
-from .models import ActionProposal, ExecutionReceipt, PolicyDecision, TaskState
+from .task import TaskState
+from .transaction import ActionProposal, ExecutionReceipt, PolicyDecision
 from .task_repository import TaskRepository
 
 

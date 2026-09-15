@@ -9,7 +9,8 @@ import os
 from pathlib import Path
 from threading import RLock
 
-from .models import LedgerEvent, new_id, utc_now
+from .audit_models import LedgerEvent
+from .protocol import new_id, utc_now
 from .store import _private_directory
 
 

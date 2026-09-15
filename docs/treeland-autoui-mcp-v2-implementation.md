@@ -22,7 +22,7 @@
 | P7c | 完成 | 桌面执行/reset 串行，运行态原子更新，trace 保持只读 |
 | P8 | 完成 | Provider 注册表负责校验与构造；入口只按配置组装 |
 | P9 | 完成 | `gui_run` 收敛为生命周期入口，`gui_diagnostic` 隔离内部阶段 |
-| P10 | 未开始 | 按领域边界拆分 models.py，不改变通信协议 |
+| P10 | 完成 | 领域模型拆分为独立模块，`models` 保持稳定聚合导出 |
 
 ## 运行与预检
 
@@ -150,6 +150,8 @@ uv run --with pytest pytest -q
 - 对外从 `core` 提供稳定导出，禁止形成循环依赖。
 
 验收：仅移动定义和更新导入，不改变 schema、序列化结果或运行行为；完整测试通过。
+
+完成：协议基础、desktop、transaction、task、evidence、audit 和 model context 各自独立；`core.models` 仅作兼容聚合，核心基础设施已改为按领域直接导入。重导出身份测试保证现有导入仍指向相同类。
 
 ## 回归待办
 

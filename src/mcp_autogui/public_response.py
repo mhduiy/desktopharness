@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .core.models import TaskStatus
+from .core.task import TaskStatus
 
 
 PUBLIC_TASK_STATUSES = frozenset(status.value for status in TaskStatus)

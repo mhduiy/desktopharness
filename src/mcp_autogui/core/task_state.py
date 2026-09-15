@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .models import AssertionResult, AssertionStatus, TaskContract, TaskState, TaskStatus
+from .evidence import AssertionResult, AssertionStatus
+from .task import TaskContract, TaskState, TaskStatus
 
 
 class TaskStateReducer:

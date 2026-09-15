@@ -12,7 +12,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from .models import new_id, to_primitive, utc_now
+from .protocol import new_id, to_primitive, utc_now
 
 
 _SAFE_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
