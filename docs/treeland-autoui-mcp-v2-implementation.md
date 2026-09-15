@@ -20,7 +20,7 @@
 | P7a | 完成 | 运行态索引迁入 TaskRepository；事件、引用与归因迁入 AuditRecorder |
 | P7b | 完成 | Repository 意图 API、TransactionRecorder 与 event_type 唯一事件类别已收敛 |
 | P7c | 完成 | 桌面执行/reset 串行，运行态原子更新，trace 保持只读 |
-| P8 | 未开始 | 为 proposal 与 evidence provider 建立统一组装注册机制 |
+| P8 | 完成 | Provider 注册表负责校验与构造；入口只按配置组装 |
 | P9 | 未开始 | 集中公开状态映射，分离默认操作与诊断操作 |
 | P10 | 未开始 | 按领域边界拆分 models.py，不改变通信协议 |
 
@@ -122,6 +122,8 @@ uv run --with pytest pytest -q
 - 未知 provider、重复注册和无效配置必须在启动时失败。
 
 验收：用测试 provider 证明扩展无需修改 Core、Facade 或主组装流程；内建 Qwen、compositor、AT-SPI、OmniParser 行为不变。
+
+完成：`provider_registry` 统一管理 proposal/evidence 的稳定 ID、校验和工厂；内建 provider 将各自配置规则与构造细节放在 adapter 层。`server_config` 只验证已注册配置，服务入口不再导入具体 provider，也不再读取旧的 OmniParser 环境开关。
 
 ### P9：收敛公开入口
 

@@ -1,5 +1,4 @@
 import asyncio
-import os
 import sys
 import types
 import unittest
@@ -93,9 +92,7 @@ class ToolRegistrationTests(unittest.TestCase):
 
     def test_only_unified_and_desktop_tools_are_registered(self):
         mcp = self.compose()
-        with patch("mcp_autogui.mcp_autogui_main.QwenBackendClient", return_value=Backend()), patch.dict(
-            os.environ, {"GUI_OMNIPARSER_ENABLED": "0"}, clear=False
-        ):
+        with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):
             mcp_autogui_main(mcp)
 
         self.assertEqual(
@@ -115,7 +112,7 @@ class ToolRegistrationTests(unittest.TestCase):
         calls = []
         fake_pyautogui.hotkey = lambda *keys: calls.append(keys)
         fake_pyautogui.press = lambda key: calls.append((key,))
-        with patch("mcp_autogui.mcp_autogui_main.QwenBackendClient", return_value=Backend()), patch(
+        with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()), patch(
             "mcp_autogui.adapters.backends.treeland_deepin.find_capability",
             return_value={
                 "enabled": True,
@@ -126,7 +123,7 @@ class ToolRegistrationTests(unittest.TestCase):
         ), patch(
             "mcp_autogui.adapters.backends.treeland_deepin.read_treeland_tree",
             return_value=desktop_tree(),
-        ), patch.dict(os.environ, {"GUI_OMNIPARSER_ENABLED": "0"}, clear=False):
+        ):
             mcp_autogui_main(mcp)
             result = asyncio.run(
                 mcp.functions["desktop_shortcut_invoke"]("desktop.launcher.toggle")
@@ -138,13 +135,13 @@ class ToolRegistrationTests(unittest.TestCase):
     def test_application_launch_returns_receipt_and_compositor_evidence(self):
         mcp = self.compose()
         launcher = ApplicationLauncher()
-        with patch("mcp_autogui.mcp_autogui_main.QwenBackendClient", return_value=Backend()), patch(
+        with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()), patch(
             "mcp_autogui.adapters.backends.treeland_deepin.DdeApplicationLauncher",
             return_value=launcher,
         ), patch(
             "mcp_autogui.adapters.backends.treeland_deepin.read_treeland_tree",
             return_value=desktop_tree("dde-file-manager"),
-        ), patch.dict(os.environ, {"GUI_OMNIPARSER_ENABLED": "0"}, clear=False):
+        ):
             mcp_autogui_main(mcp)
             result = asyncio.run(
                 mcp.functions["desktop_application_launch"](
@@ -156,21 +153,20 @@ class ToolRegistrationTests(unittest.TestCase):
         self.assertEqual(result["returncode"], 0)
         self.assertEqual(launcher.proposals[0].action.parameters["app_id"], "dde-computer")
 
-    def test_omniparser_enablement_registers_no_legacy_execution_tools(self):
+    def test_omniparser_configuration_registers_no_legacy_execution_tools(self):
         mcp = self.compose()
-        with patch("mcp_autogui.mcp_autogui_main.QwenBackendClient", return_value=Backend()), patch.dict(
-            os.environ,
-            {"GUI_OMNIPARSER_ENABLED": "1", "OMNI_PARSER_SERVER": "parser.example:8000"},
-            clear=False,
-        ):
-            mcp_autogui_main(mcp)
+        with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):
+            mcp_autogui_main(
+                mcp,
+                evidence_provider_config={"omniparser": {"enabled": True, "endpoint": "parser.example:8000"}},
+            )
 
         self.assertNotIn("omniparser_click", mcp.functions)
         self.assertEqual(len(mcp.tools), 5)
 
     def test_json_evidence_configuration_can_disable_compositor_provider(self):
         mcp = self.compose()
-        with patch("mcp_autogui.mcp_autogui_main.QwenBackendClient", return_value=Backend()):
+        with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):
             mcp_autogui_main(
                 mcp,
                 evidence_provider_config={"compositor_window": {"enabled": False}},
@@ -180,11 +176,9 @@ class ToolRegistrationTests(unittest.TestCase):
         self.assertEqual(response["status"], "ok")
         self.assertEqual(response["object"]["providers"]["evidence"], [])
 
-    def test_json_omniparser_configuration_does_not_fall_back_to_legacy_endpoint(self):
-        with patch("mcp_autogui.mcp_autogui_main.QwenBackendClient", return_value=Backend()), patch.dict(
-            os.environ, {"OMNI_PARSER_SERVER": "legacy.example:8000"}, clear=False
-        ):
-            with self.assertRaisesRegex(RuntimeError, "OMNI_PARSER_SERVER is required"):
+    def test_json_omniparser_configuration_requires_an_explicit_endpoint(self):
+        with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):
+            with self.assertRaisesRegex(ValueError, "endpoint is required"):
                 mcp_autogui_main(
                     self.compose(),
                     evidence_provider_config={"omniparser": {"enabled": True, "endpoint": ""}},

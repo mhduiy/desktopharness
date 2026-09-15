@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND, available_desktop_backends
+from .provider_registry import validate_evidence_provider, validate_proposal_provider
 
 
 @dataclass(frozen=True)
@@ -114,46 +115,14 @@ def load_server_config(path: str | Path) -> ServerConfig:
         raise ValueError(f"desktop_backend.kind must be one of: {choices}")
 
     proposal_provider = _object(raw, "proposal_provider")
-    _only_keys(
-        proposal_provider,
-        {
-            "kind", "mode", "model", "base_url", "timeout_seconds", "tls_verify", "trust_env",
-            "agent_type", "rollout_nums", "temperature", "top_p", "max_tokens",
-            "max_response_chars", "max_history_turns", "coordinate_type", "resize_factor",
-        },
-        "proposal_provider",
-    )
-    if _string(proposal_provider, "kind") != "qwen-cua":
-        raise ValueError("proposal_provider.kind must be 'qwen-cua'")
-    if _string(proposal_provider, "mode") not in {"embedded", "http"}:
-        raise ValueError("proposal_provider.mode must be 'embedded' or 'http'")
-    _optional_string(proposal_provider, "model")
-    _optional_string(proposal_provider, "base_url")
-    _optional_positive_int(proposal_provider, "timeout_seconds")
-    _optional_bool(proposal_provider, "tls_verify")
-    _optional_bool(proposal_provider, "trust_env")
-    _optional_string(proposal_provider, "agent_type")
-    for name in ("rollout_nums", "max_tokens", "max_history_turns", "resize_factor"):
-        _optional_positive_int(proposal_provider, name)
-    _optional_minimum_int(proposal_provider, "max_response_chars", 1024)
-    _optional_unit_interval(proposal_provider, "temperature")
-    _optional_unit_interval(proposal_provider, "top_p")
-    if "coordinate_type" in proposal_provider and proposal_provider["coordinate_type"] not in {"relative", "absolute"}:
-        raise ValueError("proposal_provider.coordinate_type must be 'relative' or 'absolute'")
+    validate_proposal_provider(proposal_provider, "proposal_provider")
 
     evidence_providers = _object(raw, "evidence_providers", default={})
     audit = _object(raw, "audit", default={})
-    _only_keys(evidence_providers, {"compositor_window", "atspi", "omniparser"}, "evidence_providers")
-    compositor = _object(evidence_providers, "compositor_window", default={})
-    _only_keys(compositor, {"enabled"}, "evidence_providers.compositor_window")
-    _optional_bool(compositor, "enabled")
-    atspi = _object(evidence_providers, "atspi", default={})
-    _only_keys(atspi, {"enabled"}, "evidence_providers.atspi")
-    _optional_bool(atspi, "enabled")
-    omni = _object(evidence_providers, "omniparser", default={})
-    _only_keys(omni, {"enabled", "endpoint"}, "evidence_providers.omniparser")
-    _optional_bool(omni, "enabled")
-    _optional_string(omni, "endpoint")
+    for provider_id, provider_config in evidence_providers.items():
+        if not isinstance(provider_config, dict):
+            raise ValueError(f"evidence_providers.{provider_id} must be an object")
+        validate_evidence_provider(provider_id, provider_config, f"evidence_providers.{provider_id}")
     _only_keys(audit, {"directory", "retention_days", "max_gib"}, "audit")
     _optional_string(audit, "directory")
     _optional_positive_int(audit, "retention_days")

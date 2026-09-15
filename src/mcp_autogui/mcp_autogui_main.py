@@ -1,16 +1,12 @@
 #coding: utf-8
 
 import atexit
-import os
 import sys
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from functools import partial
-from .qwen_backend import QwenBackendClient
-from .adapters.evidence import AtSpiEvidenceProvider, CompositorWindowEvidenceProvider, OmniParserEvidenceProvider
-from .adapters.proposal import QwenCUAProposalProvider
 from .core.models import (
     Action,
     ActionProposal,
@@ -26,6 +22,7 @@ from .core.orchestrator import CoreOrchestrator
 from .core.audit import audit_components_from_config
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND, create_desktop_backend
 from .facade import GuiRunFacade
+from .provider_registry import ProviderBuildContext, create_evidence_providers, create_proposal_provider
 
 INPUT_IMAGE_SIZE = 960
 DEFAULT_APPLICATION_WAIT_TIMEOUT_S = 3.0
@@ -161,13 +158,6 @@ def _active_app_task_validation(
     }
 
 
-def _env_enabled(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def mcp_autogui_main(
     mcp,
     *,
@@ -177,16 +167,7 @@ def mcp_autogui_main(
     audit_config: dict[str, object] | None = None,
     effective_config: dict[str, object] | None = None,
 ):
-    qwen_backend = QwenBackendClient(proposal_provider_config)
-    backend_close = getattr(qwen_backend, "close", None)
     worker_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="autoui-mcp")
-
-    def close_runtime() -> None:
-        worker_pool.shutdown(wait=True, cancel_futures=True)
-        if callable(backend_close):
-            backend_close()
-
-    atexit.register(close_runtime)
 
     async def run_blocking(function, /, *args, **kwargs):
         loop = asyncio.get_running_loop()
@@ -198,54 +179,27 @@ def mcp_autogui_main(
         artifact_store=store,
     )
     compositor = desktop_backend.compositor
-
-    configured_evidence = evidence_provider_config or {}
-    compositor_config = configured_evidence.get("compositor_window", {})
-    compositor_enabled = (
-        bool(compositor_config.get("enabled", True))
-        if isinstance(compositor_config, dict)
-        else True
+    proposal_runtime = create_proposal_provider(
+        proposal_provider_config or {"kind": "qwen-cua", "mode": "embedded"}, store
     )
-    evidence_providers = [CompositorWindowEvidenceProvider()] if compositor_enabled else []
-    atspi_config = configured_evidence.get("atspi", {})
-    atspi_enabled = bool(atspi_config.get("enabled", False)) if isinstance(atspi_config, dict) else False
-    if atspi_enabled and AtSpiEvidenceProvider.available():
-        evidence_providers.append(AtSpiEvidenceProvider())
-    omni_config = configured_evidence.get("omniparser", {})
-    omni_enabled = (
-        bool(omni_config.get("enabled", False))
-        if isinstance(omni_config, dict)
-        else _env_enabled("GUI_OMNIPARSER_ENABLED")
+    evidence_providers = create_evidence_providers(
+        evidence_provider_config or {"compositor_window": {"enabled": True}},
+        ProviderBuildContext(store, desktop_backend.capture_observation),
     )
-    if evidence_provider_config is None:
-        omni_enabled = _env_enabled("GUI_OMNIPARSER_ENABLED")
-    if omni_enabled:
-        endpoint = (
-            str(omni_config.get("endpoint") or "").strip()
-            if isinstance(omni_config, dict)
-            else ""
-        )
-        if evidence_provider_config is None:
-            endpoint = os.environ.get("OMNI_PARSER_SERVER", "").strip()
-        if not endpoint:
-            raise RuntimeError(
-                "OMNI_PARSER_SERVER is required when GUI_OMNIPARSER_ENABLED is enabled."
-            )
 
-        def capture_omniparser_frame() -> bytes:
-            image, _, _ = desktop_backend.capture_observation()
-            return image
+    def close_runtime() -> None:
+        worker_pool.shutdown(wait=True, cancel_futures=True)
+        if callable(proposal_runtime.close):
+            proposal_runtime.close()
 
-        evidence_providers.append(
-            OmniParserEvidenceProvider(endpoint, capture_omniparser_frame, store)
-        )
+    atexit.register(close_runtime)
 
     runtime = CoreOrchestrator(
         compositor,
         desktop_backend.executor,
-        proposal_provider=QwenCUAProposalProvider(qwen_backend, store),
+        proposal_provider=proposal_runtime.provider,
         frame_provider=desktop_backend.frame_provider,
-        evidence_providers=tuple(evidence_providers),
+        evidence_providers=evidence_providers,
         policy_providers=desktop_backend.policy_providers,
         store=store,
         ledger=ledger,
