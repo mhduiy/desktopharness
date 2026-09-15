@@ -18,7 +18,7 @@ Treeland/Deepin 会话中完成发布前回归。环境未验收不等于模型�
 | P10–P13 | 领域文件、调用文档、配置入口与可选 LangChain 边界 |
 | P14–P16 | 可读模型、desktop backend 平台工具与 TaskState 状态权威 |
 | P17 | 当前实现文档收敛 |
-| P18 | 进行中：P18a 已窄化桌面事务边界；P18b–P18d 待实施 |
+| P18 | 进行中：P18a–P18b 已完成；P18c–P18d 待实施 |
 
 已实现的稳定边界：
 
@@ -115,13 +115,16 @@ P18 不改变事实链、公开操作或领域状态，只移除现有的宽接�
 完成：应用层 `CoreDesktopTransactionRunner` 统一 register、observe、submit、decide 与 execute，并按需提供
 evaluate；desktop backend 只接收 `DesktopTransactionRunner` 与领域结果，不再持有或导入完整 Core runtime。
 
-### P18b：分离公开与诊断分派
+### P18b：分离公开与诊断分派（完成）
 
 - `gui_run` 和 `gui_diagnostic` 使用独立分派路径，不再共享 `diagnostic` 布尔开关。
 - Contract/Proposal 解析保持共享纯函数；公开 reducer 仍只依据 TaskState 和协议错误。
 - 诊断入口展示领域事实，不参与公开状态约简。
 
 验收：公开路径中不存在 Decision/Receipt 状态翻译；新增诊断字段不会影响 `gui_run`。
+
+完成：Facade 使用独立 `_handle_public` 与 `_handle_diagnostic` 路径；公开操作直接生成 compact response，
+诊断操作单独展开领域对象。两条路径只共享任务注册、describe 数据和纯解析函数。
 
 ### P18c：收回协议错误与响应职责
 

@@ -118,7 +118,11 @@ class FacadeTests(unittest.TestCase):
         self.facade = GuiRunFacade(self.runtime)
 
     def test_describe_exposes_capabilities_separately_from_task_permissions(self):
+        public = self.facade.handle("describe")
         response = self.facade.handle_diagnostic("describe")
+
+        self.assertEqual(public["status"], "completed")
+        self.assertNotIn("object", public)
         self.assertEqual(response["protocol_version"], 2)
         self.assertEqual(response["object"]["schema_revision"], "2.1-p4")
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
@@ -176,7 +180,7 @@ class FacadeTests(unittest.TestCase):
             policy_providers=(PolicyProvider(),),
         )
         facade = GuiRunFacade(runtime)
-        response = facade.handle("run", task_contract=TASK, max_iterations=1, diagnostic=True)
+        response = facade.handle("run", task_contract=TASK, max_iterations=1)
 
         self.assertEqual(response["status"], "running")
         self.assertNotIn("object", response)
