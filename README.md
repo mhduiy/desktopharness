@@ -116,7 +116,7 @@ Run the MCP server on a **test machine** and connect from another machine via SS
 
 ```bash
 uv sync
-SSE_HOST=0.0.0.0 SSE_PORT=8000 uv run treeland-autogui-mcp
+uv run treeland-autogui-mcp --config config/mcp-autoui.json
 ```
 
 Expose port `8000` and note the test machine IP.

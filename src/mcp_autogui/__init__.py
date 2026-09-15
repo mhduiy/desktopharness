@@ -1,10 +1,8 @@
 import argparse
 import json
 import logging
-import os
 import sys
 
-from .desktop_backend import DEFAULT_DESKTOP_BACKEND
 from .server_config import ignored_legacy_environment, load_server_config
 
 
@@ -22,60 +20,39 @@ def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Run the AutoUI MCP server")
     parser.add_argument(
         "--config",
-        help="path to the server JSON configuration file; environment settings remain a legacy fallback",
+        help="path to the required server JSON configuration file",
     )
     args = parser.parse_args([] if argv is None else argv)
-    server_config = load_server_config(args.config) if args.config else None
-    if server_config is not None:
-        from mcp.server.fastmcp import FastMCP
-        from .mcp_autogui_main import mcp_autogui_main
-
-        _configure_plain_server_logging()
-        ignored = ignored_legacy_environment()
-        if ignored:
-            logging.getLogger(__name__).warning(
-                "JSON configuration ignores legacy behaviour environment variables: %s",
-                ", ".join(ignored),
-            )
-        effective_config = server_config.effective_config()
-        logging.getLogger(__name__).info(
-            "AutoUI MCP effective configuration: %s",
-            json.dumps(effective_config, ensure_ascii=False, sort_keys=True),
-        )
-        mcp_main = FastMCP("desktop_harness_mcp",
-            host=server_config.transport_host,
-            port=server_config.transport_port,
-        )
-        mcp_autogui_main(
-            mcp_main,
-            desktop_backend_kind=server_config.desktop_backend,
-            proposal_provider_config=server_config.proposal_provider,
-            evidence_provider_config=server_config.evidence_providers,
-            audit_config=server_config.audit,
-            effective_config=effective_config,
-        )
-        mcp_main.run(server_config.transport_mode)
-        return
-
+    if not args.config:
+        parser.error("--config is required; move non-secret runtime settings into the JSON configuration file")
     from mcp.server.fastmcp import FastMCP
     from .mcp_autogui_main import mcp_autogui_main
-    if 'SSE_HOST' in os.environ:
-        transport = os.environ.get('MCP_TRANSPORT', 'sse')
-        if transport not in {'sse', 'streamable-http'}:
-            raise ValueError("MCP_TRANSPORT must be 'sse' or 'streamable-http'")
-        mcp_main = FastMCP("desktop_harness_mcp",
-            host=os.environ['SSE_HOST'],
-            port=os.environ['SSE_PORT'] if 'SSE_PORT' in os.environ else 8000,
-        )
-        mcp_autogui_main(mcp_main, desktop_backend_kind=DEFAULT_DESKTOP_BACKEND)
-        _configure_plain_server_logging()
-        mcp_main.run(transport)
-        return
-
-    mcp_main = FastMCP("desktop_harness_mcp")
-    mcp_autogui_main(mcp_main, desktop_backend_kind=DEFAULT_DESKTOP_BACKEND)
+    server_config = load_server_config(args.config)
     _configure_plain_server_logging()
-    mcp_main.run()
+    ignored = ignored_legacy_environment()
+    if ignored:
+        logging.getLogger(__name__).warning(
+            "JSON configuration ignores legacy behaviour environment variables: %s",
+            ", ".join(ignored),
+        )
+    effective_config = server_config.effective_config()
+    logging.getLogger(__name__).info(
+        "AutoUI MCP effective configuration: %s",
+        json.dumps(effective_config, ensure_ascii=False, sort_keys=True),
+    )
+    mcp_main = FastMCP("desktop_harness_mcp",
+        host=server_config.transport_host,
+        port=server_config.transport_port,
+    )
+    mcp_autogui_main(
+        mcp_main,
+        desktop_backend_kind=server_config.desktop_backend,
+        proposal_provider_config=server_config.proposal_provider,
+        evidence_provider_config=server_config.evidence_providers,
+        audit_config=server_config.audit,
+        effective_config=effective_config,
+    )
+    mcp_main.run(server_config.transport_mode)
 
 
 def cli_main() -> None:

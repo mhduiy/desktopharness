@@ -24,7 +24,7 @@
 | P9 | 完成 | `gui_run` 收敛为生命周期入口，`gui_diagnostic` 隔离内部阶段 |
 | P10 | 完成 | 领域模型拆分为独立模块，`models` 保持稳定聚合导出 |
 | P11 | 完成 | README 与手工验收指南已切换至公开和诊断双入口 |
-| P12 | 未开始 | 移除 CLI 旧环境变量启动旁路，强制 JSON 配置 |
+| P12 | 完成 | CLI 强制 `--config`，旧运行变量只能被忽略并告警 |
 | P13 | 未开始 | 收尾模型导入与未接入的 LangChain 扩展边界 |
 
 ## 运行与预检
@@ -177,6 +177,8 @@ uv run --with pytest pytest -q
 - 验证启动日志、effective config 与 provider registry 校验总会执行。
 
 验收：所有生产启动都读取 JSON 配置；旧环境变量只能产生忽略告警，不能改变 transport、provider 或证据配置。
+
+完成：CLI 无 `--config` 时提供迁移错误；已删除 `SSE_HOST`/`MCP_TRANSPORT` 启动分支。JSON 路径始终执行 provider registry 校验、effective config 日志和旧变量忽略告警。
 
 ### P13：收尾边界与可读性
 
