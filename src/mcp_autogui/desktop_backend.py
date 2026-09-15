@@ -10,7 +10,7 @@ from .core.desktop import CanonicalSnapshot
 from .core.store import ObjectStore
 from .core.task import TaskContract, TaskState
 from .core.transaction import ActionProposal, ExecutionReceipt, PolicyDecision
-from .ports.compositor import CompositorAdapter
+from .ports.compositor import CompositorPort
 from .ports.executor import ActionExecutor
 from .ports.frame import FrameProvider
 from .ports.policy import PolicyProvider
@@ -67,7 +67,7 @@ class DesktopBackend:
     """Ports contributed by one desktop-session backend."""
 
     backend_id: str
-    compositor: CompositorAdapter
+    compositor: CompositorPort
     executor: ActionExecutor
     frame_provider: FrameProvider
     capture_observation: Callable[[], tuple[bytes, tuple[int, int], object]]

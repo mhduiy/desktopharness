@@ -5,7 +5,7 @@ from typing import Protocol
 from ..core.models import AdapterDescriptor, CanonicalSnapshot, Point, Rect
 
 
-class CompositorAdapter(Protocol):
+class CompositorPort(Protocol):
     @property
     def descriptor(self) -> AdapterDescriptor: ...
 

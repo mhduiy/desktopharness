@@ -64,7 +64,7 @@ class CoreBoundaryTests(unittest.TestCase):
         facade = next(
             node
             for node in tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "GuiRunFacade"
+            if isinstance(node, ast.ClassDef) and node.name == "AutoUIFacade"
         )
         methods = {
             node.name: node

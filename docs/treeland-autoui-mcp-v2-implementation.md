@@ -8,8 +8,8 @@
 
 ## 当前状态
 
-v2.1 的 P0–P4、P6–P18 已完成。当前只剩 P5：在真实 Treeland/Deepin 会话中完成发布前回归。
-环境未验收不等于模型、策略或执行失败，必须单独记录。
+v2.1 的 P0–P4、P6–P18 已完成。P19 用于统一命名、收口运行描述并再次压缩本文；发布前仍需完成
+P5 真实 Treeland/Deepin 回归。环境未验收不等于模型、策略或执行失败，必须单独记录。
 
 | 阶段 | 交付基线 |
 | --- | --- |
@@ -19,6 +19,7 @@ v2.1 的 P0–P4、P6–P18 已完成。当前只剩 P5：在真实 Treeland/Dee
 | P14–P16 | 可读模型、desktop backend 平台工具与 TaskState 状态权威 |
 | P17 | 当前实现文档收敛 |
 | P18 | 完成：桌面事务、Facade、协议错误与依赖测试边界已收敛 |
+| P19 | 计划：统一人类可理解的命名，收口运行描述，压缩实施记录 |
 
 已实现的稳定边界：
 
@@ -48,7 +49,7 @@ uv run --with pytest pytest -q
 | 关注点 | 入口 |
 | --- | --- |
 | MCP 注册与依赖组装 | `src/mcp_autogui/mcp_autogui_main.py` |
-| 公开与诊断协议 | `src/mcp_autogui/facade.py`、`src/mcp_autogui/public_response.py` |
+| 公开与诊断协议 | `src/mcp_autogui/facade.py`、`src/mcp_autogui/protocol_response.py` |
 | 单步事务与有界运行 | `src/mcp_autogui/core/orchestrator.py` |
 | Proposal、Decision、Receipt | `src/mcp_autogui/core/transaction.py` |
 | TaskContract 与 TaskState | `src/mcp_autogui/core/task.py`、`src/mcp_autogui/core/task_state.py` |
@@ -100,53 +101,45 @@ Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路�
 扩展不得增加第二套公开状态、错误码 registry 或平台条件分支。未知 provider、重复注册和无效配置必须
 在启动时失败。
 
-## P18 最终边界收敛
+## P18 最终边界收敛（完成）
 
-P18 不改变事实链、公开操作或领域状态，只移除现有的宽接口和职责泄漏。每个子阶段独立测试、确认和提交。
+P18 没有增加领域状态或改变事实链，只完成以下边界收敛：
 
-### P18a：窄化桌面事务接口（完成）
+- desktop backend 通过 `DesktopTransactionRunner` 发起事务，不持有完整 Core runtime。
+- `gui_run` 与 `gui_diagnostic` 使用独立分派路径。
+- Core 不再构造 MCP response envelope，失败通过带 `ReasonCode` 的类型传递。
+- 架构测试约束 Core、adapter、desktop backend 和 Facade 的依赖方向。
 
-- desktop backend 不再接收整个 `CoreOrchestrator` 或 `Any` runtime。
-- Core 或应用层提供一个最小事务调用接口，统一完成 register、observe、submit、decide、execute、evaluate。
-- 快捷键和应用启动仍由 backend 定义 Contract、Proposal 与平台验证，但不得自行复制核心事务顺序。
+验收结果：主事务无需进入平台实现即可阅读；公开路径只按 `TaskState` 约简；全量自动化测试通过。
 
-验收：backend 只能调用明确声明的事务能力；替换 backend 不修改 Core、Facade 或 MCP 工具签名。
+## P19 命名与可读性收敛（计划）
 
-完成：应用层 `CoreDesktopTransactionRunner` 统一 register、observe、submit、decide 与 execute，并按需提供
-evaluate；desktop backend 只接收 `DesktopTransactionRunner` 与领域结果，不再持有或导入完整 Core runtime。
+P19 只解决名称误导、只读描述耦合和文档重复，不拆分稳定事务，不增加领域状态，不引入新的错误码体系。
 
-### P18b：分离公开与诊断分派（完成）
+### P19a：统一入口与响应命名（完成）
 
-- `gui_run` 和 `gui_diagnostic` 使用独立分派路径，不再共享 `diagnostic` 布尔开关。
-- Contract/Proposal 解析保持共享纯函数；公开 reducer 仍只依据 TaskState 和协议错误。
-- 诊断入口展示领域事实，不参与公开状态约简。
+- `AutoUIFacade` 明确覆盖 `gui_run` 和 `gui_diagnostic` 两类入口。
+- `protocol_response.py` 同时容纳公开 response reducer 与诊断 response builder。
+- `OperationFailure` 表达应用操作失败，避免被理解为 MCP transport 或 schema 损坏。
+- compositor 接口统一为 `CompositorPort`；`TreelandAdapter` 等具体实现保留 adapter 后缀。
 
-验收：公开路径中不存在 Decision/Receipt 状态翻译；新增诊断字段不会影响 `gui_run`。
+验收：只看类名和文件名即可区分公开响应、诊断响应、port 接口和 adapter 实现；协议字段保持兼容。
 
-完成：Facade 使用独立 `_handle_public` 与 `_handle_diagnostic` 路径；公开操作直接生成 compact response，
-诊断操作单独展开领域对象。两条路径只共享任务注册、describe 数据和纯解析函数。
+### P19b：收口只读运行描述
 
-### P18c：收回协议错误与响应职责（完成）
+- Facade 不再逐项读取 compositor、executor、provider、gate 和 context builder 的内部属性。
+- 由组装层提供一个只读运行描述，包含能力、provider ID、策略 profile 和 context strategy。
+- 运行描述只用于 `describe`，不得成为第二个运行时状态仓库。
 
-- 使用一个携带 `ReasonCode` 和恢复建议的轻量协议异常，删除按异常文本猜测错误码的逻辑。
-- 将 `response_envelope` 从 `core/orchestrator.py` 移到 Facade/协议展示层。
-- 同步架构文档：公开状态由 TaskState 决定，只有协议错误可直接归并为 `failed`。
+验收：新增 provider 或 backend 时，只修改组装与描述构造，不修改 Facade 的内部属性访问列表。
 
-验收：Core 不构造 MCP envelope；相同异常信息文本不会改变 ReasonCode；诊断 schema 保持稳定。
+### P19c：保持实现文档克制
 
-完成：`ProtocolFailure` 显式携带 ReasonCode 与恢复建议；Facade 不再解析异常文本。诊断 envelope 已迁入
-`public_response.py`，架构文档同步以 TaskState 作为任务状态唯一来源。
+- 已完成阶段只保留目标、稳定结果和验收结论。
+- 逐提交改动、排障过程和中间方案由 Git 历史承担。
+- 当前文档只维护阅读入口、扩展规则、未完成计划和发布前待办。
 
-### P18d：固化边界并恢复可读性（完成）
-
-- 增加依赖测试：Core 不导入 adapters，desktop tools 不依赖完整 Core runtime，公开与诊断分派不回退合并。
-- 只整理本阶段触及文件的导入、签名和长表达式；不为减少行数新增零散 helper 或抽象层。
-- 完整测试和真实环境测试继续分别报告，不用单元测试替代 P5。
-
-验收：边界测试可阻止上述职责泄漏回归；主事务路径无需跨越平台实现即可阅读。
-
-完成：AST 边界测试禁止 Core 导入 adapters，并固定窄桌面事务接口和公开/诊断双分派；本阶段触及的
-核心、Facade 与组装文件已恢复常规导入、签名和表达式排版，未增加领域状态或额外抽象层。
+验收：实现文档可以从头顺序阅读，不需要从阶段日志中反推当前架构。
 
 ## P5 真实环境回归
 

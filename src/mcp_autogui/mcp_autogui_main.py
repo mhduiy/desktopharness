@@ -7,7 +7,7 @@ from .core.audit import audit_components_from_config
 from .core.orchestrator import CoreOrchestrator
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND, create_desktop_backend
 from .desktop_transactions import CoreDesktopTransactionRunner
-from .facade import GuiRunFacade
+from .facade import AutoUIFacade
 from .provider_registry import (
     ProviderBuildContext,
     create_evidence_providers,
@@ -61,7 +61,7 @@ def mcp_autogui_main(
         store=store,
         ledger=ledger,
     )
-    facade = GuiRunFacade(runtime, effective_config=effective_config)
+    facade = AutoUIFacade(runtime, effective_config=effective_config)
     desktop_tools = desktop_backend.create_tools(
         CoreDesktopTransactionRunner(runtime, run_blocking),
         run_blocking,

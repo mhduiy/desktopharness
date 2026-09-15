@@ -14,7 +14,7 @@ from mcp_autogui.core.models import (
     Point,
     PolicyDecision,
     PolicyStatus,
-    ProtocolFailure,
+    OperationFailure,
     ReasonCode,
     Rect,
     StackingCapabilities,
@@ -26,7 +26,7 @@ from mcp_autogui.core.models import (
 )
 from mcp_autogui.core.orchestrator import CoreOrchestrator
 from mcp_autogui.core.store import ObjectStore
-from mcp_autogui.facade import GuiRunFacade, parse_action_proposal
+from mcp_autogui.facade import AutoUIFacade, parse_action_proposal
 from mcp_autogui.adapters.proposal.qwen_cua import QwenCUAProposalProvider
 
 
@@ -117,7 +117,7 @@ TASK = {
 class FacadeTests(unittest.TestCase):
     def setUp(self):
         self.runtime = CoreOrchestrator(Compositor(), Executor())
-        self.facade = GuiRunFacade(self.runtime)
+        self.facade = AutoUIFacade(self.runtime)
 
     def test_describe_exposes_capabilities_separately_from_task_permissions(self):
         public = self.facade.handle("describe")
@@ -181,7 +181,7 @@ class FacadeTests(unittest.TestCase):
             proposal_provider=ProposalProvider(),
             policy_providers=(PolicyProvider(),),
         )
-        facade = GuiRunFacade(runtime)
+        facade = AutoUIFacade(runtime)
         response = facade.handle("run", task_contract=TASK, max_iterations=1)
 
         self.assertEqual(response["status"], "running")
@@ -195,7 +195,7 @@ class FacadeTests(unittest.TestCase):
             proposal_provider=ProposalProvider(),
             policy_providers=(PolicyProvider(),),
         )
-        facade = GuiRunFacade(runtime)
+        facade = AutoUIFacade(runtime)
 
         response = facade.handle("run", task_contract=TASK, max_iterations=1)
         stored_result = runtime.store.require(response["object_ref"])
@@ -212,7 +212,7 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(response["error"]["code"], ReasonCode.UNSUPPORTED_OPERATION)
 
     def test_typed_protocol_failure_controls_public_recovery(self):
-        failure = ProtocolFailure(
+        failure = OperationFailure(
             ReasonCode.CAPABILITY_UNAVAILABLE,
             "message text is not part of classification",
             retry=False,

@@ -1,6 +1,6 @@
 import unittest
 
-from mcp_autogui.public_response import reduce_public_response
+from mcp_autogui.protocol_response import reduce_public_response
 
 
 class PublicResponseTests(unittest.TestCase):

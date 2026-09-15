@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .core.desktop import Point
-from .core.protocol import ProtocolFailure, ReasonCode, new_id, to_primitive
+from .core.protocol import OperationFailure, ReasonCode, new_id, to_primitive
 from .core.task import AssertionSpec, TaskContract, TaskLimits, TaskPermissions, TaskStatus
 from .core.transaction import (
     Action,
@@ -17,7 +17,7 @@ from .core.transaction import (
     PolicyStatus,
 )
 from .core.orchestrator import CoreOrchestrator
-from .public_response import reduce_public_response, response_envelope
+from .protocol_response import diagnostic_response, reduce_public_response
 
 
 _ACTION_ALIASES = {
@@ -31,7 +31,7 @@ _DIAGNOSTIC_OPERATIONS = frozenset(
 )
 
 
-class GuiRunFacade:
+class AutoUIFacade:
     def __init__(
         self,
         runtime: CoreOrchestrator,
@@ -57,7 +57,7 @@ class GuiRunFacade:
             return self._public_failure(
                 normalized, ReasonCode.OBJECT_NOT_FOUND, str(exc), "describe-or-create-task"
             )
-        except ProtocolFailure as exc:
+        except OperationFailure as exc:
             return self._public_failure(
                 normalized,
                 exc.reason_code,
@@ -77,7 +77,7 @@ class GuiRunFacade:
         """Handle explicit controller diagnostics without reducing their facts."""
         normalized = _normalize_operation(operation)
         if normalized not in _DIAGNOSTIC_OPERATIONS:
-            return response_envelope(
+            return diagnostic_response(
                 normalized,
                 "failed",
                 error={
@@ -92,13 +92,13 @@ class GuiRunFacade:
         try:
             return self._handle_diagnostic(normalized, **kwargs)
         except KeyError as exc:
-            return response_envelope(
+            return diagnostic_response(
                 normalized,
                 "failed",
                 error={"code": ReasonCode.OBJECT_NOT_FOUND, "message": str(exc)},
             )
-        except ProtocolFailure as exc:
-            return response_envelope(
+        except OperationFailure as exc:
+            return diagnostic_response(
                 normalized,
                 "failed",
                 error={
@@ -109,7 +109,7 @@ class GuiRunFacade:
                 },
             )
         except (ValueError, PermissionError, RuntimeError) as exc:
-            return response_envelope(
+            return diagnostic_response(
                 normalized,
                 "failed",
                 error={"code": ReasonCode.CONTROLLER_TASK_CONTRACT_INVALID, "message": str(exc)},
@@ -364,7 +364,7 @@ class GuiRunFacade:
         ref: str,
         task_id: str | None = None,
     ) -> dict[str, Any]:
-        response = response_envelope(operation, status, object_ref=ref)
+        response = diagnostic_response(operation, status, object_ref=ref)
         response["task_id"] = task_id
         response["task_state"] = (
             self.runtime.status(task_id).status.value if task_id is not None else None

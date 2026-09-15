@@ -10,7 +10,7 @@ from .core.task import TaskStatus
 PUBLIC_TASK_STATUSES = frozenset(status.value for status in TaskStatus)
 
 
-def response_envelope(
+def diagnostic_response(
     operation: str,
     status: str,
     *,
@@ -19,7 +19,7 @@ def response_envelope(
     retry: dict[str, Any] | None = None,
     debug_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Build the diagnostic protocol envelope outside the application core."""
+    """Build a diagnostic response outside the application core."""
     return {
         "protocol_version": 2,
         "operation": operation,

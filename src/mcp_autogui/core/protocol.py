@@ -68,8 +68,8 @@ class ReasonCode(StrEnum):
     USER_CONFIRMED = "USER_CONFIRMED"
 
 
-class ProtocolFailure(RuntimeError):
-    """Typed failure crossing from the application core to a protocol facade."""
+class OperationFailure(RuntimeError):
+    """Typed failure from an application operation with recovery guidance."""
 
     def __init__(
         self,

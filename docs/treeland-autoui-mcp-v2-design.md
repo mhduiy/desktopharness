@@ -171,7 +171,7 @@ JSON 是非秘密运行配置唯一来源；环境变量仅用于密钥和桌面
 
 ## 扩展规则
 
-- 新合成器实现 `CompositorAdapter`，只输出 canonical desktop facts。
+- 新合成器实现 `CompositorPort`，具体实现使用 adapter 命名，只输出 canonical desktop facts。
 - 新桌面能力在 backend 内校验并路由到 `ActionExecutor`，不得开放任意 shell。
 - 新 Evidence Provider 声明可提供的标准 fact path；AssertionEvaluator 决定适用、排除和冲突。
 - 新模型实现 `ProposalProvider`，只能返回单个 Proposal，不能执行或放宽策略。

@@ -7,7 +7,7 @@ from dataclasses import replace
 from threading import RLock
 from typing import Any, Mapping
 
-from ..ports.compositor import CompositorAdapter
+from ..ports.compositor import CompositorPort
 from ..ports.evidence import EvidenceProvider
 from ..ports.executor import ActionExecutor
 from ..ports.frame import FrameProvider
@@ -28,7 +28,7 @@ from .desktop import CanonicalSnapshot
 from .evidence import AssertionResult, AssertionStatus, EvidenceRecord
 from .facts import require_standard_fact_path
 from .ledger import EventLedger
-from .protocol import ProtocolFailure, ReasonCode, to_primitive
+from .protocol import OperationFailure, ReasonCode, to_primitive
 from .store import ObjectStore
 from .task import TaskContract, TaskState, TaskStatus
 from .transaction import (
@@ -50,7 +50,7 @@ class CoreOrchestrator:
 
     def __init__(
         self,
-        compositor: CompositorAdapter,
+        compositor: CompositorPort,
         executor: ActionExecutor,
         *,
         proposal_provider: ProposalProvider | None = None,
@@ -130,7 +130,7 @@ class CoreOrchestrator:
 
     def propose(self, task_id: str, *, strategy: str = "compact") -> ActionProposal:
         if self.proposal_provider is None:
-            raise ProtocolFailure(
+            raise OperationFailure(
                 ReasonCode.CAPABILITY_UNAVAILABLE,
                 "proposal provider is unavailable",
                 retry=False,
