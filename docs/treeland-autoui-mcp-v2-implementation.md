@@ -28,7 +28,7 @@
 | P13 | 完成 | Core 直导入完成，LangChain 明确为可选 MCP 客户端扩展 |
 | P14 | 完成 | 领域模型恢复常规排版，协议与序列化保持不变 |
 | P15 | 完成 | 快捷键与应用启动随 DesktopBackend 扩展 |
-| P16 | 未开始 | TaskState 成为公开状态的唯一来源 |
+| P16 | 完成 | TaskState 成为公开状态的唯一来源；协议错误单独归并为 failed |
 | P17 | 未开始 | 实现文档只保留当前结构与未完成工作 |
 
 ## 运行与预检
@@ -233,6 +233,8 @@ uv run --with pytest pytest -q
 - 删除 Facade 中重复的 Decision/Receipt → public status 条件分支。
 
 验收：源码中公开五态的映射只有一处；`gui_run` 只输出 `running`、`needs-confirmation`、`retrying`、`completed`、`failed`，诊断对象 schema 不变。
+
+完成：`CoreOrchestrator.run` 只返回最终 `TaskState`、迭代事实与恢复建议；非 delivered 的执行结果先写入失败任务状态。Facade 的公开路径不再解释 Decision/Receipt，`reduce_public_response` 只依据 `TaskState` 或协议错误生成公开状态。
 
 ### P17：压缩实现文档
 

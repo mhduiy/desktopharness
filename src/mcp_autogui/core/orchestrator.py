@@ -443,6 +443,13 @@ class CoreOrchestrator:
                 "state": self._tasks.state(task_id),
             }
         receipt = execution
+        if receipt.status != ExecutionStatus.DELIVERED:
+            return {
+                "proposal": proposal,
+                "decision": decision,
+                "receipt": receipt,
+                "state": self._tasks.state(task_id),
+            }
         evidence, results, state = self.evaluate(task_id)
         return {
             "proposal": proposal,
@@ -487,15 +494,15 @@ class CoreOrchestrator:
                 }
             )
             if decision.status == PolicyStatus.CONFIRM and not confirmed:
-                return {"status": "needs-confirmation", "iterations": tuple(outcomes)}
+                return {"state": state, "iterations": tuple(outcomes)}
             if decision.status not in {PolicyStatus.ALLOW, PolicyStatus.CONFIRM}:
-                return {"status": "failed", "iterations": tuple(outcomes)}
+                return {"state": state, "iterations": tuple(outcomes)}
             if receipt is None or receipt.status != ExecutionStatus.DELIVERED:
-                return {"status": "failed", "iterations": tuple(outcomes)}
+                return {"state": state, "iterations": tuple(outcomes)}
             if state.status == TaskStatus.COMPLETED:
-                return {"status": "completed", "iterations": tuple(outcomes)}
+                return {"state": state, "iterations": tuple(outcomes)}
             if state.status == TaskStatus.FAILED:
-                return {"status": "failed", "iterations": tuple(outcomes)}
+                return {"state": state, "iterations": tuple(outcomes)}
 
             signature = to_primitive(proposal.action)
             progressed = bool(set(state.completed_assertions) - before)
@@ -518,7 +525,7 @@ class CoreOrchestrator:
                     evidence_status=AttributionEvidenceStatus.INFERRED,
                 )
                 return {
-                    "status": "running",
+                    "state": state,
                     "iterations": tuple(outcomes),
                     "retry": {"retry": False, "required_action": "ask-controller"},
                 }
@@ -526,9 +533,9 @@ class CoreOrchestrator:
                 "recovery" if state.status == TaskStatus.RETRYING else strategy
             )
             if proposal.action.type == ActionType.DONE and state.status != TaskStatus.COMPLETED:
-                return {"status": "running", "iterations": tuple(outcomes)}
+                return {"state": state, "iterations": tuple(outcomes)}
         return {
-            "status": "running",
+            "state": self._tasks.state(task_id),
             "iterations": tuple(outcomes),
             "retry": {"retry": True, "required_action": "continue-run"},
         }
@@ -685,6 +692,10 @@ class CoreOrchestrator:
                     ReasonCode.MODEL_PROTOCOL_INVALID,
                     "Proposal provider rejected execution feedback",
                 )
+        if receipt.status != ExecutionStatus.DELIVERED:
+            self._tasks.update_state(
+                task_id, lambda state: replace(state, status=TaskStatus.FAILED)
+            )
         if receipt.status == ExecutionStatus.FAILED:
             self._record_attribution(
                 task_id,

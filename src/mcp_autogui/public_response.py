@@ -12,15 +12,14 @@ PUBLIC_TASK_STATUSES = frozenset(status.value for status in TaskStatus)
 
 def reduce_public_response(
     operation: str,
-    domain_status: str,
     *,
     task_state: str | None,
     object_ref: str | None = None,
     error: dict[str, Any] | None = None,
     retry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Map a domain result plus task state to the compact public response."""
-    status = _public_status(domain_status, task_state, error)
+    """Map authoritative task state to the compact public response."""
+    status = _public_status(task_state, error)
     return {
         "protocol_version": 2,
         "operation": operation,
@@ -32,11 +31,9 @@ def reduce_public_response(
     }
 
 
-def _public_status(domain_status: str, task_state: str | None, error: dict[str, Any] | None) -> str:
-    if error is not None or domain_status == "failed":
+def _public_status(task_state: str | None, error: dict[str, Any] | None) -> str:
+    if error is not None:
         return TaskStatus.FAILED.value
     if task_state in PUBLIC_TASK_STATUSES:
         return task_state
-    if domain_status in PUBLIC_TASK_STATUSES:
-        return domain_status
     return TaskStatus.COMPLETED.value

@@ -7,7 +7,15 @@ from typing import Any
 from .core.desktop import Point
 from .core.protocol import ReasonCode, new_id, to_primitive
 from .core.task import AssertionSpec, TaskContract, TaskLimits, TaskPermissions, TaskStatus
-from .core.transaction import Action, ActionProposal, ActionType, PolicyDecision, PolicyStatus
+from .core.transaction import (
+    Action,
+    ActionProposal,
+    ActionType,
+    ExecutionReceipt,
+    ExecutionStatus,
+    PolicyDecision,
+    PolicyStatus,
+)
 from .core.orchestrator import CoreOrchestrator, response_envelope
 from .public_response import reduce_public_response
 
@@ -180,13 +188,7 @@ class GuiRunFacade:
         if operation == "decide":
             value = self.runtime.decide(proposal_id.strip())
             ref = self._last_object_ref(resolved_task, "decision.created")
-            status = {
-                PolicyStatus.ALLOW: "running",
-                PolicyStatus.CONFIRM: "needs-confirmation",
-                PolicyStatus.DENY: "failed",
-                PolicyStatus.INVALID: "failed",
-                PolicyStatus.STALE: "running",
-            }[value.status]
+            status = _diagnostic_decision_status(value.status)
             return self._response(operation, status, ref, diagnostic, resolved_task)
         if operation in {"execute", "confirm"}:
             value = self.runtime.execute(
@@ -194,16 +196,13 @@ class GuiRunFacade:
             )
             if isinstance(value, PolicyDecision):
                 ref = self._last_object_ref(resolved_task, "decision.created")
-                status = (
-                    "needs-confirmation"
-                    if value.status == PolicyStatus.CONFIRM
-                    else "failed" if value.status in {PolicyStatus.DENY, PolicyStatus.INVALID} else "running"
-                )
+                status = self.runtime.status(resolved_task).status.value
+                if diagnostic:
+                    status = _diagnostic_decision_status(value.status)
                 return self._response(operation, status, ref, diagnostic, resolved_task)
-            if value.error_code == ReasonCode.CONFIRMATION_REQUIRED:
-                status = "needs-confirmation"
-            else:
-                status = "running" if value.status.value == "delivered" else "failed"
+            status = self.runtime.status(resolved_task).status.value
+            if diagnostic:
+                status = _diagnostic_receipt_status(value)
             response = self._response(operation, status, value.execution_id, diagnostic, resolved_task)
             if value.error_code and value.error_code != ReasonCode.CONFIRMATION_REQUIRED:
                 recovery = _recovery_for(value.error_code)
@@ -226,7 +225,9 @@ class GuiRunFacade:
                 max_iterations=max_iterations,
             )
             ref = self.runtime.store.put(value, prefix="run-result")
-            response = self._response(operation, value["status"], ref, diagnostic, resolved_task)
+            response = self._response(
+                operation, value["state"].status.value, ref, diagnostic, resolved_task
+            )
             if value.get("retry"):
                 response["retry"] = value["retry"]
             return response
@@ -273,7 +274,6 @@ class GuiRunFacade:
     def _reduce_public(self, response: dict[str, Any]) -> dict[str, Any]:
         return reduce_public_response(
             response["operation"],
-            response["status"],
             task_state=response.get("task_state"),
             object_ref=response.get("object_ref"),
             error=response.get("error"),
@@ -286,7 +286,6 @@ class GuiRunFacade:
     ) -> dict[str, Any]:
         return reduce_public_response(
             operation,
-            "failed",
             task_state=None,
             error={"code": code, "message": message, "retry": retry, "required_action": required_action},
         )
@@ -297,6 +296,24 @@ class GuiRunFacade:
             for event in reversed(self.runtime.ledger.events(task_id))
             if event.event_type == event_type
         )
+
+
+def _diagnostic_decision_status(status: PolicyStatus) -> str:
+    return {
+        PolicyStatus.ALLOW: TaskStatus.RUNNING.value,
+        PolicyStatus.CONFIRM: TaskStatus.NEEDS_CONFIRMATION.value,
+        PolicyStatus.DENY: TaskStatus.FAILED.value,
+        PolicyStatus.INVALID: TaskStatus.FAILED.value,
+        PolicyStatus.STALE: TaskStatus.RUNNING.value,
+    }[status]
+
+
+def _diagnostic_receipt_status(receipt: ExecutionReceipt) -> str:
+    if receipt.error_code == ReasonCode.CONFIRMATION_REQUIRED:
+        return TaskStatus.NEEDS_CONFIRMATION.value
+    if receipt.status == ExecutionStatus.DELIVERED:
+        return TaskStatus.RUNNING.value
+    return TaskStatus.FAILED.value
 
 
 def parse_task_contract(value: dict[str, Any]) -> TaskContract:

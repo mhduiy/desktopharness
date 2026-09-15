@@ -17,6 +17,7 @@ from mcp_autogui.core.models import (
     Rect,
     StackingCapabilities,
     StackingModel,
+    TaskStatus,
     WindowRole,
     new_id,
     utc_now,
@@ -59,6 +60,20 @@ class Executor:
     def execute(self, proposal):
         now = utc_now()
         return ExecutionReceipt(new_id("execution"), proposal.proposal_id, ExecutionStatus.DELIVERED, proposal.action, now, now)
+
+
+class FailingExecutor:
+    def execute(self, proposal):
+        now = utc_now()
+        return ExecutionReceipt(
+            new_id("execution"),
+            proposal.proposal_id,
+            ExecutionStatus.FAILED,
+            None,
+            now,
+            now,
+            ReasonCode.EXECUTOR_ACTION_FAILED,
+        )
 
 
 class ProposalProvider:
@@ -166,6 +181,23 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(response["status"], "running")
         self.assertNotIn("object", response)
         self.assertEqual(response["retry"]["required_action"], "continue-run")
+
+    def test_execution_failure_is_recorded_in_task_state(self):
+        runtime = CoreOrchestrator(
+            Compositor(),
+            FailingExecutor(),
+            proposal_provider=ProposalProvider(),
+            policy_providers=(PolicyProvider(),),
+        )
+        facade = GuiRunFacade(runtime)
+
+        response = facade.handle("run", task_contract=TASK, max_iterations=1)
+        stored_result = runtime.store.require(response["object_ref"])
+
+        self.assertEqual(response["status"], "failed")
+        self.assertEqual(response["task_state"], "failed")
+        self.assertNotIn("status", stored_result)
+        self.assertEqual(stored_result["state"].status, TaskStatus.FAILED)
 
     def test_public_operations_reject_controller_stage_operations(self):
         response = self.facade.handle("observe", task_contract=TASK)
