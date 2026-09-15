@@ -14,22 +14,32 @@ from ..ports.frame import FrameProvider
 from ..ports.policy import PolicyProvider
 from ..ports.proposal import ProposalProvider
 from .action_gate import ActionGate
+from .audit_models import (
+    Attribution,
+    AttributionEventKind,
+    AttributionEvidenceStatus,
+    AttributionOwner,
+    AttributionStage,
+)
 from .audit_recorder import AuditRecorder
 from .assertion_evaluator import AssertionEvaluator, SUPPORTED_OPERATORS
 from .context_builder import ContextBuilder
-from .facts import require_standard_fact_path
-from .ledger import EventLedger
-from .audit_models import (
-    Attribution, AttributionEventKind, AttributionEvidenceStatus, AttributionOwner, AttributionStage,
-)
 from .desktop import CanonicalSnapshot
 from .evidence import AssertionResult, AssertionStatus, EvidenceRecord
+from .facts import require_standard_fact_path
+from .ledger import EventLedger
 from .protocol import ProtocolFailure, ReasonCode, to_primitive
+from .store import ObjectStore
 from .task import TaskContract, TaskState, TaskStatus
 from .transaction import (
-    ActionProposal, ActionType, ExecutionReceipt, ExecutionStatus, PolicyDecision, PolicyStatus, SemanticTag,
+    ActionProposal,
+    ActionType,
+    ExecutionReceipt,
+    ExecutionStatus,
+    PolicyDecision,
+    PolicyStatus,
+    SemanticTag,
 )
-from .store import ObjectStore
 from .task_repository import TaskRepository
 from .task_state import TaskStateReducer
 from .transaction_recorder import TransactionRecorder
@@ -81,10 +91,15 @@ class CoreOrchestrator:
             raise ValueError("task_id and goal must not be empty")
         if contract.policy_profile not in self.gate.policy_profiles:
             raise ValueError(f"unknown policy profile: {contract.policy_profile}")
-        if any(value not in {"allow", "confirm", "deny"} for value in contract.policy_overrides.values()):
+        if any(
+            value not in {"allow", "confirm", "deny"}
+            for value in contract.policy_overrides.values()
+        ):
             raise ValueError("policy overrides must be allow, confirm, or deny")
         assertion_ids = [assertion.assertion_id for assertion in contract.assertions]
-        if len(assertion_ids) != len(set(assertion_ids)) or any(not item for item in assertion_ids):
+        if len(assertion_ids) != len(set(assertion_ids)) or any(
+            not item for item in assertion_ids
+        ):
             raise ValueError("assertion IDs must be non-empty and unique within a task")
         for assertion in contract.assertions:
             require_standard_fact_path(assertion.path)
@@ -180,7 +195,12 @@ class CoreOrchestrator:
         return proposal
 
     def submit_proposal(
-        self, task_id: str, proposal: ActionProposal, *, caused_by: tuple[str, ...] = (), provider_owned: bool = False
+        self,
+        task_id: str,
+        proposal: ActionProposal,
+        *,
+        caused_by: tuple[str, ...] = (),
+        provider_owned: bool = False,
     ) -> ActionProposal:
         self._require_task(task_id)
         self._tasks.submit_proposal(task_id, proposal.proposal_id, provider_owned=provider_owned)
@@ -312,7 +332,9 @@ class CoreOrchestrator:
                     task_id,
                     proposal,
                     stale,
-                    caused_by=self._causes_for(self._tasks.decision_ref(proposal_id) or proposal_id),
+                    caused_by=self._causes_for(
+                        self._tasks.decision_ref(proposal_id) or proposal_id
+                    ),
                     snapshot_id=latest.snapshot_id,
                 )
                 self._record_non_execution(task_id, proposal, stale)
@@ -339,7 +361,9 @@ class CoreOrchestrator:
             )
         return receipt
 
-    def evaluate(self, task_id: str) -> tuple[tuple[EvidenceRecord, ...], tuple[AssertionResult, ...], TaskState]:
+    def evaluate(
+        self, task_id: str
+    ) -> tuple[tuple[EvidenceRecord, ...], tuple[AssertionResult, ...], TaskState]:
         contract = self._require_task(task_id)
         snapshot = self.observe(task_id)
         evidence: list[EvidenceRecord] = []
@@ -431,14 +455,30 @@ class CoreOrchestrator:
             )
         return tuple(evidence), results, state
 
-    def run_step(self, task_id: str, *, confirmed: bool = False, strategy: str = "compact") -> dict[str, Any]:
+    def run_step(
+        self,
+        task_id: str,
+        *,
+        confirmed: bool = False,
+        strategy: str = "compact",
+    ) -> dict[str, Any]:
         self.observe(task_id)
         proposal = self.propose(task_id, strategy=strategy)
         decision = self.decide(proposal.proposal_id)
         if decision.status not in {PolicyStatus.ALLOW, PolicyStatus.CONFIRM}:
-            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._tasks.state(task_id)}
+            return {
+                "proposal": proposal,
+                "decision": decision,
+                "receipt": None,
+                "state": self._tasks.state(task_id),
+            }
         if decision.status == PolicyStatus.CONFIRM and not confirmed:
-            return {"proposal": proposal, "decision": decision, "receipt": None, "state": self._tasks.state(task_id)}
+            return {
+                "proposal": proposal,
+                "decision": decision,
+                "receipt": None,
+                "state": self._tasks.state(task_id),
+            }
         execution = self.execute(proposal.proposal_id, confirmed=confirmed)
         if isinstance(execution, PolicyDecision):
             return {
@@ -608,10 +648,16 @@ class CoreOrchestrator:
         decision: PolicyDecision,
     ) -> None:
         if not self._tasks.finalized(proposal.proposal_id):
-            if not self._transactions.notify_decision(self.proposal_provider, task_id, decision):
+            if not self._transactions.notify_decision(
+                self.proposal_provider, task_id, decision
+            ):
                 self._record_attribution(
-                    task_id, AttributionEventKind.ERROR, "protocol", "unknown",
-                    ReasonCode.MODEL_PROTOCOL_INVALID, "Proposal provider rejected decision feedback",
+                    task_id,
+                    AttributionEventKind.ERROR,
+                    "protocol",
+                    "unknown",
+                    ReasonCode.MODEL_PROTOCOL_INVALID,
+                    "Proposal provider rejected decision feedback",
                 )
             self._tasks.finalize(proposal.proposal_id)
         if decision.status == PolicyStatus.CONFIRM:

@@ -26,7 +26,9 @@ _ACTION_ALIASES = {
     "keyboard.shortcuts": "keyboard.shortcut",
 }
 _PUBLIC_OPERATIONS = frozenset({"describe", "run", "status", "confirm", "reset"})
-_DIAGNOSTIC_OPERATIONS = frozenset({"describe", "observe", "propose", "decide", "execute", "evaluate", "trace"})
+_DIAGNOSTIC_OPERATIONS = frozenset(
+    {"describe", "observe", "propose", "decide", "execute", "evaluate", "trace"}
+)
 
 
 class GuiRunFacade:
@@ -82,14 +84,18 @@ class GuiRunFacade:
                     "code": ReasonCode.UNSUPPORTED_OPERATION,
                     "message": "unsupported gui_diagnostic operation",
                     "retry": False,
-                    "required_action": "call-describe-observe-propose-decide-execute-evaluate-or-trace",
+                    "required_action": (
+                        "call-describe-observe-propose-decide-execute-evaluate-or-trace"
+                    ),
                 },
             )
         try:
             return self._handle_diagnostic(normalized, **kwargs)
         except KeyError as exc:
             return response_envelope(
-                normalized, "failed", error={"code": ReasonCode.OBJECT_NOT_FOUND, "message": str(exc)}
+                normalized,
+                "failed",
+                error={"code": ReasonCode.OBJECT_NOT_FOUND, "message": str(exc)},
             )
         except ProtocolFailure as exc:
             return response_envelope(
@@ -372,12 +378,22 @@ class GuiRunFacade:
 
     @staticmethod
     def _public_failure(
-        operation: str, code: ReasonCode, message: str, required_action: str, *, retry: bool = False
+        operation: str,
+        code: ReasonCode,
+        message: str,
+        required_action: str,
+        *,
+        retry: bool = False,
     ) -> dict[str, Any]:
         return reduce_public_response(
             operation,
             task_state=None,
-            error={"code": code, "message": message, "retry": retry, "required_action": required_action},
+            error={
+                "code": code,
+                "message": message,
+                "retry": retry,
+                "required_action": required_action,
+            },
         )
 
     def _last_object_ref(self, task_id: str, event_type: str) -> str:
@@ -466,7 +482,10 @@ def _component_id(component: Any, attribute: str) -> str | None:
 
 
 def _normalize_operation(operation: str) -> str:
-    return {"assess": "decide", "verify": "evaluate"}.get(operation.strip().lower(), operation.strip().lower())
+    normalized = operation.strip().lower()
+    return {"assess": "decide", "verify": "evaluate"}.get(
+        normalized, normalized
+    )
 
 
 def _recovery_for(code: ReasonCode) -> dict[str, Any]:
@@ -491,7 +510,8 @@ def parse_action_proposal(value: dict[str, Any], default_snapshot: str) -> Actio
     if not isinstance(value, dict):
         raise ValueError("proposal must be an object")
     action_value = value.get("action") or {}
-    action_type = ActionType(_ACTION_ALIASES.get(str(action_value.get("type")), str(action_value.get("type"))))
+    requested_type = str(action_value.get("type"))
+    action_type = ActionType(_ACTION_ALIASES.get(requested_type, requested_type))
     coordinate_value = action_value.get("coordinate")
     point = None
     space = None

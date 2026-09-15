@@ -1,15 +1,19 @@
-#coding: utf-8
-
 import atexit
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from .core.orchestrator import CoreOrchestrator
+
 from .core.audit import audit_components_from_config
+from .core.orchestrator import CoreOrchestrator
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND, create_desktop_backend
 from .desktop_transactions import CoreDesktopTransactionRunner
 from .facade import GuiRunFacade
-from .provider_registry import ProviderBuildContext, create_evidence_providers, create_proposal_provider
+from .provider_registry import (
+    ProviderBuildContext,
+    create_evidence_providers,
+    create_proposal_provider,
+)
+
 
 def mcp_autogui_main(
     mcp,
