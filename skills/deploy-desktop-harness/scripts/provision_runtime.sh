@@ -4,6 +4,7 @@ set -euo pipefail
 
 PROJECT_URL="${DESKTOPHARNESS_REPO_URL:-https://github.com/zorowk/desktopharness.git}"
 PROJECT_DIR="${DESKTOPHARNESS_DIR:-}"
+: "${CUA_MODEL_API_KEY:?Set CUA_MODEL_API_KEY in the controlling AI environment.}"
 
 fail() { printf 'PROVISION_FAILURE phase=%s reason=%s\n' "$1" "$2" >&2; exit 1; }
 command -v loginctl >/dev/null || fail SYSTEM_CHECK loginctl-unavailable
@@ -90,6 +91,10 @@ run_as_desktop "$uv_bin" sync --project "$PROJECT_DIR" --frozen \
 
 config="$PROJECT_DIR/config/mcp-autoui.json"
 [[ -f "$config" ]] || fail DESKTOPHARNESS_START config-missing
+env_file="$PROJECT_DIR/.env.local"
+printf '%s\n' "$CUA_MODEL_API_KEY" | run_as_desktop sh -c \
+  'umask 077; IFS= read -r key; printf "CUA_MODEL_API_KEY=%s\\n" "$key" > "$1"; chmod 600 "$1"' _ "$env_file" \
+  || fail DESKTOPHARNESS_START qwen-api-key-write-failed
 endpoint_port="$(
   sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$config" \
     | head -n 1
@@ -103,8 +108,10 @@ if [[ "$backend" == treeland-* ]]; then
 fi
 
 if ! pgrep -u "$desktop_user" -f 'treeland-autogui-mcp.*--config' >/dev/null; then
-  run_as_desktop env "${session_env_args[@]}" sh -c 'nohup "$1" --config "$2" >"$3" 2>&1 &' _ \
-    "$PROJECT_DIR/.venv/bin/treeland-autogui-mcp" "$config" "$PROJECT_DIR/desktopharness-mcp.log"
+  run_as_desktop env "${session_env_args[@]}" sh -c \
+    'IFS= read -r line < "$1" || exit 1; CUA_MODEL_API_KEY=${line#CUA_MODEL_API_KEY=}; [ "$CUA_MODEL_API_KEY" != "$line" ] || exit 1; export CUA_MODEL_API_KEY; nohup "$2" --config "$3" >"$4" 2>&1 &' _ \
+    "$env_file" "$PROJECT_DIR/.venv/bin/treeland-autogui-mcp" "$config" \
+    "$PROJECT_DIR/desktopharness-mcp.log"
 fi
 
 sleep 2

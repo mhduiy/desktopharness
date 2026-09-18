@@ -14,10 +14,19 @@ controller.
 
 ## Required connection data
 
-Before any SSH command, obtain the hostname/IP, SSH username, and an authentication method. Do not
-infer any of them. Prefer an SSH agent or identity file. For password authentication, use SSH's
-interactive password prompt; never place a password in an argument, shell variable, file, log,
-result, or JSON.
+Do not begin deployment until the controlling AI has all four minimum inputs: the target IP address,
+SSH username, SSH password, and Qwen API key. Do not infer any of them. Enter the SSH password only
+through SSH's interactive prompt; never place it in an argument, shell variable, file, log, result,
+or JSON.
+
+The controlling AI must set `CUA_MODEL_API_KEY` in the provisioning process environment before a
+Qwen-enabled deployment. The helper transfers it in a temporary `0600` file over encrypted SCP,
+deletes the remote temporary copy immediately after reading it, stores it only in the remote desktop
+user's `.env.local` with mode `0600`, and loads it only for the MCP server process. Never ask the
+user to paste it into a command, put it in JSON, or display it. This does not require SSHD `AcceptEnv`.
+The direct deployment start path explicitly exports the key to `treeland-autogui-mcp`; the project's
+`client_env.sh` also exports `.env.local` before it starts that process and refuses startup if the
+key is absent.
 
 State the exact remote change plan and obtain confirmation immediately before running
 `scripts/provision_remote.sh`. Checking connectivity and system state is read-only; installation,
@@ -34,7 +43,8 @@ updating, or starting a service is not.
    only when the selected backend requires them.
 3. After approval, run `scripts/provision_remote.sh`. It clones only when the selected project
    directory is absent, updates only a clean existing checkout via fast-forward, and starts the
-   server as the discovered desktop-session user.
+   server as the discovered desktop-session user. It requires `CUA_MODEL_API_KEY` when the checked
+   configuration enables the embedded Qwen provider.
 4. Run `scripts/verify_mcp.py` against the endpoint. Observe and screenshot evidence are required.
    An input probe is deliberately opt-in: it must use a user-approved, harmless `task_contract` and
    `proposal` supplied in a JSON file; do not make up coordinates, keys, or a target application.

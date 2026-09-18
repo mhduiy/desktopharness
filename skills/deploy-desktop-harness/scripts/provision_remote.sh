@@ -7,13 +7,44 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${SSH_USER:?Set SSH_USER.}"
 PROJECT_URL="${DESKTOPHARNESS_REPO_URL:-https://github.com/zorowk/desktopharness.git}"
 PROJECT_DIR="${DESKTOPHARNESS_DIR:-}"
+: "${CUA_MODEL_API_KEY:?Set CUA_MODEL_API_KEY in the controlling AI environment.}"
+
+port="${SSH_PORT:-22}"
+identity_args=()
+if [[ -n "${SSH_IDENTITY_FILE:-}" ]]; then
+  identity_args=(-i "${SSH_IDENTITY_FILE}")
+fi
+local_secret_file="$(mktemp)"
+remote_secret_file="/tmp/.desktopharness-qwen-${RANDOM}-${RANDOM}"
+trap 'rm -f -- "$local_secret_file"' EXIT
+umask 077
+printf 'CUA_MODEL_API_KEY=%s\n' "$CUA_MODEL_API_KEY" > "$local_secret_file"
+chmod 600 "$local_secret_file"
+scp -p \
+  -o ConnectTimeout=15 \
+  -o ConnectionAttempts=1 \
+  -o ServerAliveInterval=10 \
+  -o ServerAliveCountMax=2 \
+  -o StrictHostKeyChecking=ask \
+  -P "$port" \
+  "${identity_args[@]}" \
+  "$local_secret_file" "${SSH_USER}@${SSH_HOST}:${remote_secret_file}" \
+  || { printf 'PROVISION_FAILURE phase=SSH_CONNECT reason=qwen-api-key-transfer-failed\n' >&2; exit 1; }
 
 "${SCRIPT_DIR}/remote_exec.sh" \
-  "PROJECT_URL=$(printf '%q' "$PROJECT_URL") PROJECT_DIR=$(printf '%q' "$PROJECT_DIR") bash -se" \
+  "PROJECT_URL=$(printf '%q' "$PROJECT_URL") PROJECT_DIR=$(printf '%q' "$PROJECT_DIR") REMOTE_SECRET_FILE=$(printf '%q' "$remote_secret_file") bash -se" \
   <<'REMOTE'
 set -euo pipefail
 
 fail() { printf 'PROVISION_FAILURE phase=%s reason=%s\n' "$1" "$2" >&2; exit 1; }
+secret_file="${REMOTE_SECRET_FILE:-}"
+[[ "$secret_file" == /tmp/.desktopharness-qwen-* && -r "$secret_file" ]] \
+  || fail DESKTOPHARNESS_START qwen-api-key-unavailable
+trap 'rm -f -- "$secret_file"' EXIT
+IFS= read -r CUA_MODEL_API_KEY < "$secret_file" || fail DESKTOPHARNESS_START qwen-api-key-unavailable
+CUA_MODEL_API_KEY="${CUA_MODEL_API_KEY#CUA_MODEL_API_KEY=}"
+[[ -n "$CUA_MODEL_API_KEY" ]] || fail DESKTOPHARNESS_START qwen-api-key-unavailable
+rm -f -- "$secret_file"
 command -v loginctl >/dev/null || fail SYSTEM_CHECK loginctl-unavailable
 command -v git >/dev/null || fail DEPENDENCY git-unavailable
 command -v ss >/dev/null || fail SYSTEM_CHECK ss-unavailable
@@ -99,6 +130,10 @@ run_as_desktop "$uv_bin" sync --project "$PROJECT_DIR" --frozen \
 
 config="$PROJECT_DIR/config/mcp-autoui.json"
 [[ -f "$config" ]] || fail DESKTOPHARNESS_START config-missing
+env_file="$PROJECT_DIR/.env.local"
+printf '%s\n' "$CUA_MODEL_API_KEY" | run_as_desktop sh -c \
+  'umask 077; IFS= read -r key; printf "CUA_MODEL_API_KEY=%s\\n" "$key" > "$1"; chmod 600 "$1"' _ "$env_file" \
+  || fail DESKTOPHARNESS_START qwen-api-key-write-failed
 endpoint_port="$(
   sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$config" \
     | head -n 1
@@ -112,8 +147,10 @@ if [[ "$backend" == treeland-* ]]; then
 fi
 
 if ! pgrep -u "$desktop_user" -f 'treeland-autogui-mcp.*--config' >/dev/null; then
-  run_as_desktop env "${session_env_args[@]}" sh -c 'nohup "$1" --config "$2" >"$3" 2>&1 &' _ \
-    "$PROJECT_DIR/.venv/bin/treeland-autogui-mcp" "$config" "$PROJECT_DIR/desktopharness-mcp.log"
+  run_as_desktop env "${session_env_args[@]}" sh -c \
+    'IFS= read -r line < "$1" || exit 1; CUA_MODEL_API_KEY=${line#CUA_MODEL_API_KEY=}; [ "$CUA_MODEL_API_KEY" != "$line" ] || exit 1; export CUA_MODEL_API_KEY; nohup "$2" --config "$3" >"$4" 2>&1 &' _ \
+    "$env_file" "$PROJECT_DIR/.venv/bin/treeland-autogui-mcp" "$config" \
+    "$PROJECT_DIR/desktopharness-mcp.log"
 fi
 
 sleep 2
