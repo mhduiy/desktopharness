@@ -108,9 +108,9 @@ if [[ "$backend" == treeland-* ]]; then
 fi
 
 if ! pgrep -u "$desktop_user" -f 'treeland-autogui-mcp.*--config' >/dev/null; then
-  run_as_desktop env "${session_env_args[@]}" sh -c \
-    'IFS= read -r line < "$1" || exit 1; CUA_MODEL_API_KEY=${line#CUA_MODEL_API_KEY=}; [ "$CUA_MODEL_API_KEY" != "$line" ] || exit 1; export CUA_MODEL_API_KEY; nohup "$2" --config "$3" >"$4" 2>&1 &' _ \
-    "$env_file" "$PROJECT_DIR/.venv/bin/treeland-autogui-mcp" "$config" \
+  run_as_desktop env "${session_env_args[@]}" AUTOUI_MCP_CONFIG="$config" sh -c \
+    'IFS= read -r line < "$1" || exit 1; CUA_MODEL_API_KEY=${line#CUA_MODEL_API_KEY=}; [ "$CUA_MODEL_API_KEY" != "$line" ] || exit 1; export CUA_MODEL_API_KEY; cd "$2"; nohup ./client_env.sh >"$3" 2>&1 &' _ \
+    "$env_file" "$PROJECT_DIR" \
     "$PROJECT_DIR/desktopharness-mcp.log"
 fi
 

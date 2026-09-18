@@ -34,6 +34,9 @@ Run only `scripts/deploy.sh`. It first verifies `treeland-debug --json tree`; on
 triggers a matching Debug Treeland build, in-place install, and service restart. All lower-level
 helpers are internal.
 
+DesktopHarness is started through the target checkout's `client_env.sh`; do not invoke the MCP
+binary directly, because `client_env.sh` owns the ydotool, udev, and desktop-session setup.
+
 ```sh
 CUA_MODEL_API_KEY=... scripts/deploy.sh --host <ip> --user <ssh-user> \
   [--treeland-source <git-url>] [--treeland-ref <branch|tag|commit>]
