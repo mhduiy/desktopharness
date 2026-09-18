@@ -10,24 +10,31 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+_session_id: str | None = None
+_direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 def call(endpoint: str, method: str, params: dict) -> dict:
+    global _session_id
     payload = {
         "jsonrpc": "2.0",
         "id": f"probe-{time.time_ns()}",
         "method": method,
         "params": params,
     }
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if _session_id:
+        headers["Mcp-Session-Id"] = _session_id
     request = urllib.request.Request(
         endpoint,
         data=json.dumps(payload).encode(),
         method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        },
+        headers=headers,
     )
-    with urllib.request.urlopen(request, timeout=12) as response:  # explicit user-supplied endpoint
+    with _direct_opener.open(request, timeout=12) as response:  # explicit user-supplied endpoint
+        _session_id = response.headers.get("Mcp-Session-Id", _session_id)
         value = json.loads(response.read().decode())
     if not isinstance(value, dict) or "error" in value:
         raise RuntimeError(str(value.get("error", value)))
@@ -80,6 +87,11 @@ def main() -> int:
     result = {"endpoint": args.endpoint, "mcp_reachable": False, "observe": False,
               "screenshot": False, "pointer": False, "keyboard": False}
     try:
+        call(args.endpoint, "initialize", {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "desktop-harness-provisioner", "version": "1"},
+        })
         tool(args.endpoint, "gui_run", {"operation": "describe"})
         result["mcp_reachable"] = True
         contract = {"task_id": "provision-observe", "goal": "Read the current desktop only.",

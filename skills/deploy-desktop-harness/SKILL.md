@@ -28,6 +28,20 @@ The direct deployment start path explicitly exports the key to `treeland-autogui
 `client_env.sh` also exports `.env.local` before it starts that process and refuses startup if the
 key is absent.
 
+## Entry point
+
+Run only `scripts/deploy.sh`. It first verifies `treeland-debug --json tree`; only a failed check
+triggers a matching Debug Treeland build, in-place install, and service restart. All lower-level
+helpers are internal.
+
+```sh
+CUA_MODEL_API_KEY=... scripts/deploy.sh --host <ip> --user <ssh-user> \
+  [--treeland-source <git-url>] [--treeland-ref <branch|tag|commit>]
+```
+
+The facade calls, in order: Treeland preflight; conditional ref resolution and Debug build; then
+DesktopHarness provisioning. Do not invoke internal helpers directly.
+
 State the exact remote change plan and obtain confirmation immediately before running
 `scripts/provision_remote.sh`. Checking connectivity and system state is read-only; installation,
 updating, or starting a service is not.
@@ -57,6 +71,8 @@ updating, or starting a service is not.
 - Retry SSH and HTTP requests at most twice after the initial attempt. Do not wait indefinitely.
 - Never reset the system, upgrade the OS, overwrite a dirty checkout, modify project source, delete
   user data, or stop unrelated services.
+- An explicitly authorized Debug test build may replace Treeland under `/usr` and restart its
+  matching service.
 - Do not expose a network endpoint wider than the user approved. The project configuration currently
   defaults to streamable HTTP at `/mcp`; report the endpoint actually configured.
 - A generic deployment skill cannot make an unsupported compositor work. If the installed
@@ -74,3 +90,4 @@ updating, or starting a service is not.
   `SSH_HOST` and `SSH_USER`; review its generated remote plan before execution.
 - `scripts/verify_mcp.py`: MCP protocol and evidence probe. Use `--input-probe` only with explicit
   authorization and a supplied JSON probe definition.
+- `scripts/deploy.sh`: the only public deployment facade.

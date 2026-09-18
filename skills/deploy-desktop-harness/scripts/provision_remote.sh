@@ -53,15 +53,13 @@ session=""
 session_type=""
 while read -r id _; do
   [[ -n "$id" ]] || continue
-  properties="$(
-    loginctl show-session "$id" -p Name -p Type -p State -p Remote -p Leader --value \
-      2>/dev/null || true
-  )"
-  mapfile -t values <<<"$properties"
-  if [[ ( "${values[1]:-}" == wayland || "${values[1]:-}" == x11 ) \
-    && "${values[2]:-}" == active \
-    && "${values[3]:-}" == no \
-    && -n "${values[4]:-}" ]]; then
+  name="$(loginctl show-session "$id" -p Name --value 2>/dev/null || true)"
+  type="$(loginctl show-session "$id" -p Type --value 2>/dev/null || true)"
+  state="$(loginctl show-session "$id" -p State --value 2>/dev/null || true)"
+  remote="$(loginctl show-session "$id" -p Remote --value 2>/dev/null || true)"
+  leader_value="$(loginctl show-session "$id" -p Leader --value 2>/dev/null || true)"
+  if [[ ( "$type" == wayland || "$type" == x11 ) && "$state" == active \
+    && "$remote" == no && -n "$leader_value" ]]; then
     session="$id"
     session_type="${values[1]}"
     break
@@ -69,11 +67,9 @@ while read -r id _; do
 done < <(loginctl list-sessions --no-legend)
 [[ -n "$session" ]] || fail DESKTOP_SESSION active-local-graphical-session-not-found
 
-mapfile -t session_values < <(loginctl show-session "$session" -p Name -p Leader --value)
-desktop_user="${session_values[0]:-}"
-leader="${session_values[1]:-}"
-[[ -n "$desktop_user" && -r "/proc/$leader/environ" ]] \
-  || fail DESKTOP_SESSION session-environment-unreadable
+desktop_user="$(loginctl show-session "$session" -p Name --value)"
+leader="$(loginctl show-session "$session" -p Leader --value)"
+[[ -n "$desktop_user" && -n "$leader" ]] || fail DESKTOP_SESSION session-metadata-unreadable
 
 run_as_desktop() {
   if [[ "$(id -un)" == "$desktop_user" ]]; then
@@ -90,12 +86,25 @@ if [[ -z "$PROJECT_DIR" ]]; then
   PROJECT_DIR="$desktop_home/desktopharness"
 fi
 
+environment_pid="$leader"
+if [[ ! -r "/proc/$environment_pid/environ" ]]; then
+  environment_pid="$(run_as_desktop sh -c '
+    for proc in /proc/[0-9]*; do
+      [ -r "$proc/environ" ] || continue
+      tr "\0" "\n" < "$proc/environ" 2>/dev/null | grep -q "^WAYLAND_DISPLAY=" || continue
+      basename "$proc"; exit 0
+    done
+  ' || true)"
+fi
+[[ -n "$environment_pid" && -r "/proc/$environment_pid/environ" ]] \
+  || fail DESKTOP_SESSION session-environment-unreadable
 session_env="$(
-  tr '\0' '\n' < "/proc/$leader/environ" \
-    | grep -E '^(WAYLAND_DISPLAY|DISPLAY|XAUTHORITY|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS)=' \
+  tr '\0' '\n' < "/proc/$environment_pid/environ" \
+    | grep -E '^(WAYLAND_DISPLAY|DISPLAY|XAUTHORITY|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|XDG_SESSION_TYPE)=' \
     || true
 )"
 mapfile -t session_env_args <<<"$session_env"
+session_env_args+=("XDG_SESSION_TYPE=$session_type")
 if [[ "$session_type" == wayland ]]; then
   grep -q '^WAYLAND_DISPLAY=' <<<"$session_env" || fail DESKTOP_SESSION WAYLAND_DISPLAY-missing
 else
@@ -142,7 +151,7 @@ backend="$(sed -n 's/.*"kind"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$conf
 [[ -n "$endpoint_port" && -n "$backend" ]] || fail DEPENDENCY invalid-desktopharness-config
 if [[ "$backend" == treeland-* ]]; then
   [[ "$session_type" == wayland ]] || fail DEPENDENCY treeland-backend-requires-wayland
-  run_as_desktop env "${session_env_args[@]}" treeland-debug --json tree >/dev/null \
+  run_as_desktop env "${session_env_args[@]}" timeout 10 treeland-debug --json tree >/dev/null \
     || fail DEPENDENCY treeland-backend-unavailable-in-desktop-session
 fi
 
