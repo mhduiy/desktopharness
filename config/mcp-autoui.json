@@ -12,7 +12,7 @@
     "kind": "qwen-cua",
     "mode": "embedded",
     "model": "qwen3_rl",
-    "base_url": "https://101.89.57.40:5918/v1",
+    "base_url": "http://10.30.33.14:8001/v1",
     "timeout_seconds": 120,
     "tls_verify": true,
     "trust_env": false,
