@@ -23,7 +23,10 @@ _CONFIDENCE_RANK = {
     EvidenceConfidence.MODEL_CLAIM: 1,
 }
 SUPPORTED_OPERATORS = frozenset(
-    {"equals", "not_equals", "exists", "contains", "starts_with", "matches", "greater_than", "less_than"}
+    {
+        "equals", "not_equals", "exists", "contains", "starts_with", "matches",
+        "greater_than", "less_than", "within_rect",
+    }
 )
 
 
@@ -174,4 +177,16 @@ def _apply_operator(operator: str, actual: Any, expected: Any) -> bool:
         return actual > expected
     if operator == "less_than":
         return actual < expected
+    if operator == "within_rect":
+        if not isinstance(actual, dict) or not isinstance(expected, dict):
+            raise ValueError("within_rect requires point and rectangle objects")
+        try:
+            x, y = float(actual["x"]), float(actual["y"])
+            left, top = float(expected["x"]), float(expected["y"])
+            width, height = float(expected["width"]), float(expected["height"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("within_rect requires numeric x, y, width, and height") from exc
+        if width <= 0 or height <= 0:
+            raise ValueError("within_rect requires positive width and height")
+        return left <= x <= left + width and top <= y <= top + height
     raise ValueError(f"unsupported assertion operator: {operator}")

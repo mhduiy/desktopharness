@@ -75,9 +75,18 @@ ExecutionReceipt、Evidence、AssertionResult、TaskState、attribution 与恢�
 对下列任务在相同环境下各执行至少 10 次。每次失败都保留证据，不允许人工补做
 后计作成功。
 
+### 坐标基准规则
+
+凡是验收目标位于可移动窗口内，**不得**把某一轮得到的桌面绝对坐标复用于下一轮。
+每轮必须先保存该轮的 canonical snapshot，按目标窗口在该 snapshot 中的 geometry
+计算目标点或目标区域，并把计算结果写入该轮不可变的 `task_contract`。目标是区域时，
+对 `cursor.position` 使用 `within_rect`，其 expected 值为 `{x, y, width, height}`；窗口发生平移、
+缩放、切换输出或重新创建后，必须重新观察；不能沿用旧 contract。`window_relative_point()`
+可用于回归驱动按窗口相对位置生成 desktop-logical 坐标。
+
 | 任务 | 主要能力 | 成功条件 |
 | --- | --- | --- |
-| 安全鼠标移动到计算器数字 7 | 视觉定位与坐标映射 | 落点在目标内，无点击。 |
+| 安全鼠标移动到计算器数字 7 | 视觉定位与坐标映射 | 以该轮计算器 geometry 计算数字 7 的目标区域；落点在目标内，无点击。 |
 | 打开已知应用 | application launcher 与窗口 evidence | 目标 app 成为活动窗口。 |
 | 在空白文档输入固定文本后清空 | 焦点、键盘与 assertion | 文本准确、未保存、清理完成。 |
 | 设置页只滚动 | 窗口选择与无副作用操作 | 内容移动，未修改任何设置。 |

@@ -285,6 +285,24 @@ class EvidenceAndStateTests(unittest.TestCase):
         )
         self.assertEqual(result.status, AssertionStatus.UNKNOWN)
 
+    def test_cursor_can_be_asserted_within_a_target_rectangle(self):
+        spec = AssertionSpec(
+            "cursor-at-seven",
+            "cursor.position",
+            "within_rect",
+            {"x": 380.0, "y": 505.0, "width": 30.0, "height": 30.0},
+        )
+        record = EvidenceRecord(
+            evidence_id="cursor-1",
+            source="fixture",
+            captured_at=utc_now(),
+            subject={"snapshot_id": "snapshot-1"},
+            facts={"cursor.position": {"x": 394.0, "y": 520.0}},
+            quality=EvidenceConfidence.DETERMINISTIC,
+        )
+        result = AssertionEvaluator().evaluate(spec, [record])
+        self.assertEqual(result.status, AssertionStatus.PASSED)
+
     def test_reducer_alone_can_complete_task(self):
         spec = AssertionSpec("opened", "active_window.app_id", "equals", "editor")
         result = AssertionEvaluator().evaluate(
