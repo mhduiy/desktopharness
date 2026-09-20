@@ -71,6 +71,7 @@ class AutoUIFacade:
                 ReasonCode.CONTROLLER_TASK_CONTRACT_INVALID,
                 str(exc),
                 "correct-request",
+                debug_ref=getattr(exc, "debug_ref", None),
             )
 
     def handle_diagnostic(self, operation: str, **kwargs: Any) -> dict[str, Any]:
@@ -346,8 +347,9 @@ class AutoUIFacade:
         required_action: str,
         *,
         retry: bool = False,
+        debug_ref: str | None = None,
     ) -> dict[str, Any]:
-        return reduce_public_response(
+        response = reduce_public_response(
             operation,
             task_state=None,
             error={
@@ -357,6 +359,9 @@ class AutoUIFacade:
                 "required_action": required_action,
             },
         )
+        if debug_ref:
+            response["debug_ref"] = debug_ref
+        return response
 
     def _last_object_ref(self, task_id: str, event_type: str) -> str:
         return next(

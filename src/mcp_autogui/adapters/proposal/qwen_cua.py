@@ -66,14 +66,17 @@ class QwenCUAProposalProvider:
             raise RuntimeError("Qwen-CUA requires a frame")
         screenshot = self._store.require(context.frame.image_ref)
         instruction = self._instruction(context)
-        result = self._backend.predict(
-            instruction,
-            screenshot,
-            context.task_id,
-            image_mime="image/png",
-            client_step=context.current_step + 1,
-            session_instruction=context.goal,
-        )
+        try:
+            result = self._backend.predict(
+                instruction, screenshot, context.task_id, image_mime="image/png",
+                client_step=context.current_step + 1, session_instruction=context.goal,
+            )
+        except ValueError as exc:
+            raw = getattr(exc, "response", None)
+            if isinstance(raw, str):
+                debug_ref = self._store.put({"assistant_output": raw}, prefix="model-output")
+                raise QwenProposalError(str(exc), debug_ref) from exc
+            raise
         debug_ref = self._store.put(result, prefix="model-output")
         try:
             parsed = parse_qwen_actions(result.get("actions", []))

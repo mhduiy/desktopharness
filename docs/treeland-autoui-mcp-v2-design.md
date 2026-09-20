@@ -28,6 +28,13 @@
 每一层只回答一个问题，并由对应责任方产生唯一权威对象。这样可以同时做到：模型不拥有执行权、
 执行成功不被误判为业务成功、证据不足不被伪装成失败、诊断信息不污染日常调用。
 
+### 模型提案序列
+
+一次模型输出对应一个 Proposal，可包含一个或多个有序原子动作；模型的输出粒度不应成为
+协议限制。审计、策略、确认与归因均以 Proposal 为单位，原子动作的 Guard 和 Receipt 是该
+Proposal 的执行明细。序列全部完成后统一观察与评估；任一 Guard 拒绝、环境失效或执行失败
+立即停止剩余动作。该模型同时兼容单个 `drag` 与“移动、按下、移动、松开”等 CUA 输出。
+
 ## 目标
 
 将 GUI 自动化表示为可验证、可审计的事实链。Core 可跨合成器和桌面后端复用；模型只能提案，
@@ -174,4 +181,4 @@ JSON 是非秘密运行配置唯一来源；环境变量仅用于密钥和桌面
 - 新合成器实现 `CompositorPort`，具体实现使用 adapter 命名，只输出 canonical desktop facts。
 - 新桌面能力在 backend 内校验并路由到 `ActionExecutor`，不得开放任意 shell。
 - 新 Evidence Provider 声明可提供的标准 fact path；AssertionEvaluator 决定适用、排除和冲突。
-- 新模型实现 `ProposalProvider`，只能返回单个 Proposal，不能执行或放宽策略。
+- 新模型实现 `ProposalProvider`，返回一个可含有序动作序列的 Proposal，不能执行或放宽策略。

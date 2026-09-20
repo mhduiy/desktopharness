@@ -98,12 +98,15 @@ class QwenCUAAgent:
         request_started = time.perf_counter()
         response = self._call_llm(messages)
         request_ms = (time.perf_counter() - request_started) * 1000
-        action_text, actions = parse_s2_response(
-            response,
-            original_size=original_size,
-            processed_size=processed_size,
-            coordinate_type=self.coordinate_type,
-        )
+        try:
+            action_text, actions = parse_s2_response(
+                response, original_size=original_size, processed_size=processed_size,
+                coordinate_type=self.coordinate_type,
+            )
+        except ValueError as exc:
+            error = ValueError(str(exc))
+            error.response = response
+            raise error from exc
         return AgentPrediction(
             assistant_output=response,
             action_text=action_text,

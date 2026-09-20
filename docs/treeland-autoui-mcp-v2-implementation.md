@@ -90,7 +90,15 @@ Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路�
 - **新合成器**：实现 `ports/compositor.py`，在 desktop backend 中组装，并添加 canonical fixture 测试。
 - **新桌面环境**：新增完整 `DesktopBackend`；快捷键、应用目录和启动事务随 backend 提供，不进入 Core。
 - **新执行器**：实现 `ports/executor.py`；只返回实际执行事实，不判断业务成功。
-- **新模型**：实现 `ports/proposal.py` 并注册 provider；每次只产生一个 Proposal。
+- **新模型**：实现 `ports/proposal.py` 并注册 provider；每次产生一个 Proposal，可包含有序动作序列。
+
+## Proposal 动作序列实施计划
+
+1. 将 `ActionProposal.action` 演进为非空 `actions`，保留单动作输入兼容层。
+2. 将 PolicyDecision、确认、Guard 与 Receipt 以 Proposal 为主单位；Receipt 保存每个原子动作明细。
+3. 执行器按序执行，不在动作间重新调用模型；任一步失败或 Guard 拒绝即停止后续动作。
+4. 序列结束后统一 capture observation、Evidence 与 AssertionResult；高风险序列仅确认一次。
+5. 更新 Qwen 及其他 provider 的解析、审计 schema、trace、持久化迁移和跨模型测试。
 - **新证据源**：实现 `ports/evidence.py`，声明标准 fact path，并覆盖 unknown、conflict 和过期证据。
 
 扩展不得增加第二套公开状态、错误码 registry 或平台条件分支。未知 provider、重复注册和无效配置必须
