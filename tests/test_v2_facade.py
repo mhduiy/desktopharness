@@ -27,7 +27,7 @@ from mcp_autogui.core.models import (
 from mcp_autogui.core.orchestrator import CoreOrchestrator
 from mcp_autogui.core.store import ObjectStore
 from mcp_autogui.facade import AutoUIFacade, parse_action_proposal
-from mcp_autogui.adapters.proposal.qwen_cua import QwenCUAProposalProvider
+from mcp_autogui.adapters.proposal.qwen_cua import QwenCUAProposalProvider, QwenProposalError
 from mcp_autogui.runtime_description import RuntimeDescription
 
 
@@ -328,6 +328,15 @@ class QwenProposalAdapterTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "exactly one action"):
             provider.propose(context)
+
+    def test_unsupported_qwen_action_retains_raw_model_output(self):
+        context, store = self.context_and_store()
+        provider = QwenCUAProposalProvider(Backend(["WAIT"]), store)
+
+        with self.assertRaises(QwenProposalError) as caught:
+            provider.propose(context)
+
+        self.assertEqual(store.require(caught.exception.debug_ref)["actions"], ["WAIT"])
 
     def test_qwen_decision_feedback_clears_pending_without_a_receipt(self):
         calls = []

@@ -188,7 +188,29 @@ class CoreOrchestrator:
             strategy=strategy,
         )
         self.store.put(context, object_ref=context.model_context_id)
-        proposal = self.proposal_provider.propose(context)
+        try:
+            proposal = self.proposal_provider.propose(context)
+        except Exception as exc:
+            debug_ref = getattr(exc, "debug_ref", None)
+            if isinstance(debug_ref, str) and debug_ref:
+                diagnostic = self._append_event(
+                    task_id,
+                    "model_diagnostic.recorded",
+                    debug_ref,
+                    caused_by=self._causes_for(snapshot.snapshot_id),
+                    snapshot_id=snapshot.snapshot_id,
+                    debug_ref=debug_ref,
+                )
+                self._record_attribution(
+                    task_id,
+                    AttributionEventKind.ERROR,
+                    AttributionStage.PLANNING,
+                    AttributionOwner.MODEL,
+                    ReasonCode.MODEL_PLANNING_INVALID,
+                    str(exc),
+                    evidence_refs=(diagnostic.event_id, debug_ref),
+                )
+            raise
         if proposal.based_on_snapshot != snapshot.snapshot_id:
             raise ValueError("proposal must reference the current snapshot")
         self.submit_proposal(task_id, proposal, provider_owned=True)

@@ -295,6 +295,34 @@ class EvidenceAndStateTests(unittest.TestCase):
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_invalid_model_proposal_records_its_debug_artifact(self):
+        class InvalidProposalProvider:
+            def __init__(self, store):
+                self.store = store
+
+            def propose(self, _context):
+                debug_ref = self.store.put({"actions": ["WAIT"]}, prefix="model-output")
+                error = ValueError("unsupported Qwen action in v2: wait")
+                error.debug_ref = debug_ref
+                raise error
+
+        runtime = CoreOrchestrator(FakeCompositor([snapshot()]), FakeExecutor())
+        runtime.proposal_provider = InvalidProposalProvider(runtime.store)
+        runtime.register_task(contract())
+
+        with self.assertRaisesRegex(ValueError, "unsupported Qwen action"):
+            runtime.propose("task-1")
+
+        diagnostic_events = [
+            event for event in runtime.ledger.events("task-1")
+            if event.event_type == "model_diagnostic.recorded"
+        ]
+        self.assertEqual(len(diagnostic_events), 1)
+        self.assertEqual(runtime.store.require(diagnostic_events[0].debug_ref)["actions"], ["WAIT"])
+        attribution = runtime.attributions("task-1")[0]
+        self.assertEqual(attribution.code, ReasonCode.MODEL_PLANNING_INVALID)
+        self.assertIn(diagnostic_events[0].debug_ref, attribution.evidence_refs)
+
     def test_reset_waits_for_an_inflight_desktop_execution(self):
         class BlockingExecutor(FakeExecutor):
             def __init__(self):

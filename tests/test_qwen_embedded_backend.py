@@ -11,6 +11,7 @@ from mcp_autogui.qwen_cua_backend.agent import (
     parse_s2_response,
 )
 from mcp_autogui.qwen_cua_backend.image import prepare_screenshot
+from mcp_autogui.qwen_cua_backend.prompts import build_system_prompt
 from mcp_autogui.qwen_cua_backend.service import QwenCUAConfig, QwenCUAService
 
 
@@ -147,6 +148,24 @@ class EmbeddedAgentTests(unittest.TestCase):
                 processed_size=(96, 96),
                 coordinate_type="relative",
             )
+
+    def test_parse_s2_rejects_wait_not_supported_by_v2(self):
+        response = (
+            "Action: Wait\n<tool_call>"
+            '{"name":"computer_use","arguments":{"action":"wait","time":1}}'
+            "</tool_call>"
+        )
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            parse_s2_response(
+                response,
+                original_size=(100, 100),
+                processed_size=(96, 96),
+                coordinate_type="relative",
+            )
+
+    def test_system_prompt_does_not_advertise_wait(self):
+        prompt = build_system_prompt("relative", (992, 800))
+        self.assertNotIn('"wait"', prompt)
 
     def test_parse_s2_rejects_multiple_tool_calls(self):
         response = """Action: Repeated move

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import time
 from typing import Any, Callable
 
 
@@ -38,7 +37,7 @@ def parse_qwen_actions(raw_actions: Any) -> list[dict[str, Any]]:
         if not isinstance(raw_action, str):
             raise ValueError(f"Qwen-CUA action {source_index} must be a string")
         text = raw_action.strip()
-        if text in TERMINAL_ACTIONS or text == "WAIT":
+        if text in TERMINAL_ACTIONS:
             parsed.append(
                 {
                     "source_index": source_index,
@@ -81,8 +80,6 @@ def _parse_statement(
         if function not in ALLOWED_PYAUTOGUI_CALLS:
             raise ValueError(f"pyautogui.{function} is not allowed")
         action_type = function
-    elif namespace == "time" and function == "sleep":
-        action_type = "wait"
     else:
         raise ValueError(f"{namespace}.{function} is not allowed")
 
@@ -163,10 +160,6 @@ def execute_parsed_actions(
         try:
             if action_type in {"done", "fail"}:
                 result = f"Terminal action: {str(action_type).upper()}"
-            elif action_type == "wait":
-                seconds = _wait_seconds(action)
-                time.sleep(seconds)
-                result = f"Waited {seconds} seconds"
             else:
                 function_name = str(action.get("function") or "").removeprefix("pyautogui.")
                 if function_name not in ALLOWED_PYAUTOGUI_CALLS:
@@ -248,16 +241,3 @@ def set_absolute_coordinate(
         args[0] = x
         args[1] = y
     action["coordinate"] = {"x": x, "y": y}
-
-
-def _wait_seconds(action: dict[str, Any]) -> float:
-    if action.get("function") == "time.sleep":
-        args = action.get("args", [])
-        value = args[0] if args else action.get("kwargs", {}).get("secs", 1.0)
-    else:
-        value = 1.0
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise ValueError("Wait duration must be numeric")
-    if value < 0 or value > 30:
-        raise ValueError("Wait duration must be between 0 and 30 seconds")
-    return float(value)

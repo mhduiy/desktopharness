@@ -94,9 +94,7 @@ REAL_MODEL_RETURNS = [
     "pyautogui.hotkey('ctrl', 'a')",
     "pyautogui.press('backspace')",
     "pyautogui.write('Treeland CUA input test 2026-09-01')",
-    "time.sleep(1.0)",
     "DONE",
-    "WAIT",
     "FAIL",
     "pyautogui.write('line one')\npyautogui.press('enter')",
 ]
@@ -106,6 +104,8 @@ DANGEROUS_RETURNS = [
     "os.system('rm -rf /')",
     "pyautogui.click(get_x(), 20)",
     "pyautogui.not_allowed(1)",
+    "time.sleep(1.0)",
+    "WAIT",
 ]
 
 

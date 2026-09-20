@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+from ..qwen_action_registry import COMPUTER_USE_ACTIONS
+
 
 ACTION_DESCRIPTION = """
 * `key`: Press one key, or a shortcut when multiple keys are provided.
@@ -23,13 +25,13 @@ ACTION_DESCRIPTION = """
 * `triple_click`: Triple-click the left mouse button at a coordinate.
 * `scroll`: Scroll vertically.
 * `hscroll`: Scroll horizontally.
-* `wait`: Wait for the interface to change.
 * `terminate`: Finish the task with success or failure.
 """
 
 DESCRIPTION_TEMPLATE = """Use a mouse and keyboard to interact with a desktop GUI.
 * Applications are opened by interacting with visible desktop UI.
-* Applications may need time to start or update; use wait when appropriate.
+* Do not wait. If the interface may still be changing, choose a supported next
+  action only when it is visible; otherwise terminate with failure.
 {resolution_info}
 * Consult the latest screenshot before choosing a coordinate.
 * Aim at the visible center of a control unless the task explicitly requires an edge.
@@ -74,23 +76,7 @@ def build_system_prompt(coordinate_type: str, processed_size: tuple[int, int]) -
                     "action": {
                         "type": "string",
                         "description": ACTION_DESCRIPTION,
-                        "enum": [
-                            "key",
-                            "key_down",
-                            "key_up",
-                            "type",
-                            "mouse_move",
-                            "left_click",
-                            "left_click_drag",
-                            "right_click",
-                            "middle_click",
-                            "double_click",
-                            "triple_click",
-                            "scroll",
-                            "hscroll",
-                            "wait",
-                            "terminate",
-                        ],
+                        "enum": list(COMPUTER_USE_ACTIONS),
                     },
                     "keys": {"type": "array", "items": {"type": "string"}},
                     "text": {"type": "string"},

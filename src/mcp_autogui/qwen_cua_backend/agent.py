@@ -16,6 +16,7 @@ from typing import Any
 
 from .image import prepare_screenshot
 from .prompts import build_system_prompt
+from ..qwen_action_registry import COMPUTER_USE_ACTIONS
 
 
 @dataclass(frozen=True)
@@ -305,6 +306,8 @@ def _computer_use_to_actions(
     coordinate_type: str,
 ) -> list[str]:
     action = str(arguments.get("action") or "").strip()
+    if action not in COMPUTER_USE_ACTIONS:
+        raise ValueError(f"Unsupported Qwen computer_use action: {action or '<empty>'}")
     coordinate_actions = {
         "mouse_move": "moveTo",
         "left_click": "click",
@@ -357,12 +360,9 @@ def _computer_use_to_actions(
     if action in {"scroll", "hscroll"}:
         pixels = _bounded_number(arguments.get("pixels", 0), -100000, 100000, "pixels")
         return [f"pyautogui.{action}({pixels})"]
-    if action == "wait":
-        seconds = _bounded_number(arguments.get("time", 1.0), 0.0, 30.0, "time")
-        return [f"time.sleep({seconds})"]
     if action == "terminate":
         return ["FAIL" if str(arguments.get("status", "success")).lower() == "failure" else "DONE"]
-    raise ValueError(f"Unsupported Qwen computer_use action: {action or '<empty>'}")
+    raise AssertionError(f"Unhandled registered Qwen action: {action}")
 
 
 def _project_coordinate(

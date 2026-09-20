@@ -17,6 +17,7 @@ from ...core.models import (
 )
 from ...core.store import ObjectStore
 from ...qwen_actions import parse_qwen_actions
+from ...qwen_action_registry import V2_PARSED_QWEN_ACTIONS
 
 
 _ACTION_TYPES = {
@@ -41,6 +42,16 @@ _ACTION_TYPES = {
     "mouseUp": ActionType.POINTER_CLICK,
     "done": ActionType.DONE,
 }
+if frozenset(_ACTION_TYPES) != V2_PARSED_QWEN_ACTIONS:  # pragma: no cover - import-time contract
+    raise RuntimeError("Qwen v2 action registry and canonical mapping diverged")
+
+
+class QwenProposalError(ValueError):
+    """A rejected model response whose raw diagnostic is available by reference."""
+
+    def __init__(self, message: str, debug_ref: str) -> None:
+        super().__init__(message)
+        self.debug_ref = debug_ref
 
 
 class QwenCUAProposalProvider:
@@ -63,12 +74,15 @@ class QwenCUAProposalProvider:
             client_step=context.current_step + 1,
             session_instruction=context.goal,
         )
-        parsed = parse_qwen_actions(result.get("actions", []))
-        if len(parsed) != 1:
-            raise ValueError("Qwen-CUA v2 must return exactly one action")
         debug_ref = self._store.put(result, prefix="model-output")
-        snapshot: CanonicalSnapshot = self._store.require(context.based_on_snapshot)
-        action = canonical_action_from_parsed(parsed[0], snapshot, context.frame.pixel_size)
+        try:
+            parsed = parse_qwen_actions(result.get("actions", []))
+            if len(parsed) != 1:
+                raise ValueError("Qwen-CUA v2 must return exactly one action")
+            snapshot: CanonicalSnapshot = self._store.require(context.based_on_snapshot)
+            action = canonical_action_from_parsed(parsed[0], snapshot, context.frame.pixel_size)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise QwenProposalError(str(exc), debug_ref) from exc
         return ActionProposal(
             proposal_id=new_id("proposal"),
             source="qwen-cua",
