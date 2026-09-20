@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 
 from .desktop import AdapterDescriptor, CanonicalSnapshot, Point
 from .evidence import EvidenceConfidence
@@ -88,6 +89,21 @@ class ActionGate:
             semantic_resolution_ref=resolution.semantic_resolution_id,
         )
         return decision, guard, resolution
+
+    def derive_sequence_guards(
+        self, proposal: ActionProposal, snapshot: CanonicalSnapshot
+    ) -> tuple[ProposalGuard, ...]:
+        """Build per-action guards without changing the legacy decision API."""
+        guards: list[ProposalGuard] = []
+        for action in proposal.action_sequence:
+            guard, error = self._derive_guard(
+                replace(proposal, action=action, actions=()), snapshot
+            )
+            if error is not None:
+                raise ValueError(error[1].value)
+            if guard is not None:
+                guards.append(guard)
+        return tuple(guards)
 
     @staticmethod
     def resolve_semantics(

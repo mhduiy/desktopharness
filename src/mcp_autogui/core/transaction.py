@@ -123,6 +123,7 @@ class PolicyDecision:
     reason_code: ReasonCode
     resolved_target: Mapping[str, Any] = field(default_factory=dict)
     guard_ref: str | None = None
+    guard_refs: tuple[str, ...] = ()
     semantic_resolution_ref: str | None = None
     debug_ref: str | None = None
     schema_version: str = SCHEMA_VERSION
@@ -130,6 +131,8 @@ class PolicyDecision:
     def __post_init__(self) -> None:
         if not isinstance(self.reason_code, ReasonCode):
             raise TypeError("PolicyDecision.reason_code must be a ReasonCode")
+        if self.guard_refs and self.guard_ref not in self.guard_refs:
+            raise ValueError("guard_ref must be included in guard_refs")
 
 
 @dataclass(frozen=True, slots=True)
