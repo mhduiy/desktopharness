@@ -39,7 +39,7 @@
     }
   },
   "audit": {
-    "directory": "",
+    "directory": ".autoui-audit",
     "retention_days": 7,
     "max_gib": 16
   }
