@@ -64,9 +64,19 @@ class ActionProposal:
     source: str
     based_on_snapshot: str
     action: Action
+    actions: tuple[Action, ...] = ()
     claimed_intent: str | None = None
     debug_ref: str | None = None
     schema_version: str = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.actions and self.actions[0] != self.action:
+            raise ValueError("proposal.action must equal the first action in actions")
+
+    @property
+    def action_sequence(self) -> tuple[Action, ...]:
+        """Full model proposal, with legacy single-action compatibility."""
+        return self.actions or (self.action,)
 
 
 @dataclass(frozen=True, slots=True)

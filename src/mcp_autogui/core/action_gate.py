@@ -125,14 +125,14 @@ class ActionGate:
     def _mechanical_check(
         self, proposal: ActionProposal, contract: TaskContract, snapshot: CanonicalSnapshot
     ) -> tuple[PolicyStatus, ReasonCode] | None:
-        action = proposal.action
-        if action.type not in contract.permissions.actions:
-            return PolicyStatus.DENY, ReasonCode.MECHANICAL_PERMISSION_DENIED
-        if action.coordinate is not None:
-            if action.coordinate_space != snapshot.coordinate_space.id:
-                return PolicyStatus.INVALID, ReasonCode.INVALID_COORDINATE_SPACE
-            if not snapshot.coordinate_space.bounds.contains(action.coordinate):
-                return PolicyStatus.INVALID, ReasonCode.OUTSIDE_DESKTOP
+        for action in proposal.action_sequence:
+            if action.type not in contract.permissions.actions:
+                return PolicyStatus.DENY, ReasonCode.MECHANICAL_PERMISSION_DENIED
+            if action.coordinate is not None:
+                if action.coordinate_space != snapshot.coordinate_space.id:
+                    return PolicyStatus.INVALID, ReasonCode.INVALID_COORDINATE_SPACE
+                if not snapshot.coordinate_space.bounds.contains(action.coordinate):
+                    return PolicyStatus.INVALID, ReasonCode.OUTSIDE_DESKTOP
         return None
 
     def _derive_guard(

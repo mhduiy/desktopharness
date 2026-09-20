@@ -192,6 +192,20 @@ class CanonicalAdapterTests(unittest.TestCase):
 
 
 class ActionGateTests(unittest.TestCase):
+    def test_sequence_is_denied_when_a_later_action_lacks_permission(self):
+        proposal = ActionProposal(
+            proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
+            action=Action(ActionType.POINTER_MOVE, Point(10, 10), "desktop-logical"),
+            actions=(
+                Action(ActionType.POINTER_MOVE, Point(10, 10), "desktop-logical"),
+                Action(ActionType.POINTER_CLICK, Point(10, 10), "desktop-logical"),
+            ),
+        )
+        decision, _, _ = ActionGate(descriptor()).decide(
+            proposal, contract(actions={ActionType.POINTER_MOVE}), snapshot()
+        )
+        self.assertEqual(decision.status, PolicyStatus.DENY)
+        self.assertEqual(decision.reason_code, ReasonCode.MECHANICAL_PERMISSION_DENIED)
     def test_unrelated_snapshot_change_does_not_invalidate_guard(self):
         first = snapshot()
         gate = ActionGate(descriptor(), lambda point, snap: snap.windows[0].window_id)
