@@ -1,4 +1,4 @@
-"""Thin coordinator for the v2 single-action transaction."""
+"""Thin coordinator for v2 proposal transactions."""
 
 from __future__ import annotations
 
@@ -28,12 +28,14 @@ from .desktop import CanonicalSnapshot
 from .evidence import AssertionResult, AssertionStatus, EvidenceRecord
 from .facts import require_standard_fact_path
 from .ledger import EventLedger
-from .protocol import OperationFailure, ReasonCode, to_primitive
+from .protocol import OperationFailure, ReasonCode, new_id, to_primitive, utc_now
 from .store import ObjectStore
 from .task import TaskContract, TaskState, TaskStatus
 from .transaction import (
+    Action,
     ActionProposal,
     ActionType,
+    AtomicActionReceipt,
     ExecutionReceipt,
     ExecutionStatus,
     PolicyDecision,
@@ -265,13 +267,13 @@ class CoreOrchestrator:
                 reason_code=ReasonCode.SNAPSHOT_UNAVAILABLE,
                 semantic_resolution_ref=resolution.semantic_resolution_id,
             )
-            guard = None
+            guards = ()
         else:
-            decision, guard, resolution = self.gate.decide(
+            decision, guards, resolution = self.gate.decide_with_guards(
                 proposal, self._tasks.contract(task_id), snapshot, tags
             )
         self.store.put(resolution, object_ref=resolution.semantic_resolution_id)
-        if guard is not None:
+        for guard in guards:
             self._tasks.record_guard(guard)
             self.store.put(guard, object_ref=guard.guard_id)
         self._store_decision(
@@ -345,9 +347,12 @@ class CoreOrchestrator:
             if current_snapshot is not None
             else self.observe(task_id)
         )
-        guard = self._tasks.guard(decision.guard_ref or "")
-        if guard is not None:
-            guard_error = self.gate.recheck(guard, latest)
+        for guard_ref in decision.guard_refs or ((decision.guard_ref,) if decision.guard_ref else ()):
+            guard = self._tasks.guard(guard_ref)
+            if guard is None:
+                guard_error = ReasonCode.OBJECT_NOT_FOUND
+            else:
+                guard_error = self.gate.recheck(guard, latest)
             if guard_error is not None:
                 stale = replace(decision, status=PolicyStatus.STALE, reason_code=guard_error)
                 self._store_decision(
@@ -362,26 +367,77 @@ class CoreOrchestrator:
                 self._record_non_execution(task_id, proposal, stale)
                 return stale
 
-        receipt = self.executor.execute(proposal)
-        if (
-            receipt.proposal_id != proposal.proposal_id
-            or (
-                receipt.status == ExecutionStatus.DELIVERED
-                and receipt.executed_action != proposal.action
-            )
-        ):
-            receipt = replace(
-                receipt,
-                proposal_id=proposal.proposal_id,
-                status=ExecutionStatus.FAILED,
-                error_code=ReasonCode.EXECUTOR_ACTION_MISMATCH,
-            )
+        receipt = self._execute_action_sequence(proposal)
         self._record_receipt(task_id, receipt)
         if receipt.status == ExecutionStatus.DELIVERED:
             self._tasks.update_state(
                 task_id, lambda state: replace(state, step=state.step + 1)
             )
         return receipt
+
+    def _execute_action_sequence(self, proposal: ActionProposal) -> ExecutionReceipt:
+        """Execute one model proposal as an ordered, fail-fast action sequence."""
+        atomic: list[AtomicActionReceipt] = []
+        delivered: list[Action] = []
+        sequence_started = utc_now()
+        aggregate_status = ExecutionStatus.DELIVERED
+        aggregate_error = None
+
+        for action_index, action in enumerate(proposal.action_sequence):
+            single = replace(proposal, action=action, actions=())
+            try:
+                result = self.executor.execute(single)
+            except Exception:
+                result = ExecutionReceipt(
+                    execution_id=new_id("execution"),
+                    proposal_id=proposal.proposal_id,
+                    status=ExecutionStatus.FAILED,
+                    executed_action=None,
+                    started_at=utc_now(),
+                    finished_at=utc_now(),
+                    error_code=ReasonCode.EXECUTOR_ACTION_FAILED,
+                )
+            status = result.status
+            error = result.error_code
+            if result.proposal_id != proposal.proposal_id or (
+                status == ExecutionStatus.DELIVERED and result.executed_action != action
+            ):
+                status = ExecutionStatus.FAILED
+                error = ReasonCode.EXECUTOR_ACTION_MISMATCH
+            atomic.append(
+                AtomicActionReceipt(
+                    action_index=action_index,
+                    action=action,
+                    status=status,
+                    started_at=result.started_at,
+                    finished_at=result.finished_at,
+                    executor_execution_id=result.execution_id,
+                    error_code=error,
+                )
+            )
+            if status == ExecutionStatus.DELIVERED:
+                delivered.append(action)
+                continue
+            aggregate_status = status
+            aggregate_error = error or ReasonCode.EXECUTOR_ACTION_FAILED
+            break
+
+        finished_at = atomic[-1].finished_at if atomic else utc_now()
+        if len(proposal.action_sequence) == 1 and atomic:
+            execution_id = atomic[0].executor_execution_id or new_id("execution")
+        else:
+            execution_id = new_id("execution")
+        return ExecutionReceipt(
+            execution_id=execution_id,
+            proposal_id=proposal.proposal_id,
+            status=aggregate_status,
+            executed_action=delivered[0] if delivered else None,
+            started_at=atomic[0].started_at if atomic else sequence_started,
+            finished_at=finished_at,
+            error_code=aggregate_error,
+            executed_actions=tuple(delivered),
+            action_receipts=tuple(atomic),
+        )
 
     def evaluate(
         self, task_id: str
@@ -535,7 +591,7 @@ class CoreOrchestrator:
         strategy: str = "compact",
         max_iterations: int | None = None,
     ) -> dict[str, Any]:
-        """Run bounded single-action transactions until the task blocks or terminates."""
+        """Run bounded Proposal transactions until the task blocks or terminates."""
         contract = self._require_task(task_id)
         remaining = max(0, contract.limits.max_steps - self._tasks.state(task_id).step)
         limit = remaining if max_iterations is None else min(remaining, max_iterations)
@@ -571,7 +627,7 @@ class CoreOrchestrator:
             if state.status == TaskStatus.FAILED:
                 return {"state": state, "iterations": tuple(outcomes)}
 
-            signature = to_primitive(proposal.action)
+            signature = to_primitive(proposal.action_sequence)
             progressed = bool(set(state.completed_assertions) - before)
             if not progressed and signature == previous_signature:
                 repeated_without_progress += 1
@@ -599,7 +655,10 @@ class CoreOrchestrator:
             active_strategy = (
                 "recovery" if state.status == TaskStatus.RETRYING else strategy
             )
-            if proposal.action.type == ActionType.DONE and state.status != TaskStatus.COMPLETED:
+            if (
+                proposal.action_sequence[-1].type == ActionType.DONE
+                and state.status != TaskStatus.COMPLETED
+            ):
                 return {"state": state, "iterations": tuple(outcomes)}
         return {
             "state": self._tasks.state(task_id),

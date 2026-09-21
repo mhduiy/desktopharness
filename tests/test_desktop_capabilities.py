@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from mcp_autogui.adapters.platform.deepin_keybindings import DeepinKeybindingProvider
+from mcp_autogui.core.models import Action, ActionProposal, ActionType, Point
 from mcp_autogui.desktop_capabilities import (
     find_capability,
     load_desktop_application_catalogue,
@@ -76,3 +78,25 @@ class DesktopCapabilitiesTests(unittest.TestCase):
     def test_unknown_capability_is_not_found(self):
         with tempfile.TemporaryDirectory() as directory:
             self.assertIsNone(find_capability("unknown", Path(directory)))
+
+    def test_policy_provider_inspects_later_actions_in_a_proposal(self):
+        provider = DeepinKeybindingProvider(
+            resolver=lambda capability_id: {
+                "risk": "high",
+                "auto_invokable": False,
+            } if capability_id == "desktop.lock" else None
+        )
+        actions = (
+            Action(ActionType.POINTER_MOVE, Point(10, 10), "desktop-logical"),
+            Action(
+                ActionType.PLATFORM_INVOKE,
+                parameters={"capability_id": "desktop.lock"},
+            ),
+        )
+        proposal = ActionProposal(
+            "proposal-1", "fixture", "snapshot-1", actions[0], actions
+        )
+
+        tags = provider.independent_tags(proposal, None)
+
+        self.assertEqual([tag.tag for tag in tags], ["destructive"])

@@ -53,13 +53,13 @@ optional compatibility path, not the default dependency.
 
 All Qwen interaction goes through the unified lifecycle and diagnostic MCP
 tools; the legacy `qwen_cua_*` tools were removed. The embedded backend is
-addressed by the task contract, and each round produces exactly one canonical
-action:
+addressed by the task contract, and each round produces one canonical Proposal
+containing a non-empty ordered action sequence:
 
 1. `gui_run(operation="run", task_contract={"task_id": ..., "goal": ...,
    "permissions": {...}, "limits": {"max_steps": 5, "max_retries": 2},
    "policy_overrides": {"unknown": "allow", "content_edit": "allow"}})`
-   executes bounded single-action transactions:
+   executes bounded Proposal transactions (each Proposal may contain an ordered action sequence):
    observe -> propose (Qwen) -> decide -> guard recheck -> execute ->
    evaluate -> reduce state, until the task blocks or terminates.
 2. Fine-grained inspection uses `gui_diagnostic` instead: `observe`,

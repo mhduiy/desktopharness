@@ -19,23 +19,26 @@ class DeepinKeybindingProvider:
 
     def independent_tags(self, proposal, contract):
         del contract
-        if proposal.action.type != ActionType.PLATFORM_INVOKE:
-            return ()
-        capability_id = str(proposal.action.parameters.get("capability_id") or "")
-        capability = self.resolve(capability_id)
-        if capability is None:
-            return ()
-        if capability.get("risk") == "high":
-            tag = "destructive"
-        elif capability.get("auto_invokable"):
-            tag = "navigation"
-        else:
-            tag = "unknown"
-        return (
-            SemanticTag(
-                tag,
-                "platform-capability",
-                f"deepin-capability:{capability_id}",
-                EvidenceConfidence.DETERMINISTIC,
-            ),
-        )
+        tags = []
+        for action in proposal.action_sequence:
+            if action.type != ActionType.PLATFORM_INVOKE:
+                continue
+            capability_id = str(action.parameters.get("capability_id") or "")
+            capability = self.resolve(capability_id)
+            if capability is None:
+                continue
+            if capability.get("risk") == "high":
+                tag = "destructive"
+            elif capability.get("auto_invokable"):
+                tag = "navigation"
+            else:
+                tag = "unknown"
+            tags.append(
+                SemanticTag(
+                    tag,
+                    "platform-capability",
+                    f"deepin-capability:{capability_id}",
+                    EvidenceConfidence.DETERMINISTIC,
+                )
+            )
+        return tuple(tags)

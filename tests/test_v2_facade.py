@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from mcp_autogui.core.models import (
+    ActionType,
     AdapterCapabilities,
     AdapterDescriptor,
     CanonicalSnapshot,
@@ -145,7 +146,8 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(public["status"], "completed")
         self.assertNotIn("object", public)
         self.assertEqual(response["protocol_version"], 2)
-        self.assertEqual(response["object"]["schema_revision"], "2.1-p4")
+        self.assertEqual(response["object"]["schema_revision"], "2.1-p5")
+        self.assertEqual(response["object"]["proposal_model"]["actions"], "ordered-sequence")
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
         self.assertIn("pointer.click", response["object"]["actions"])
         self.assertEqual(response["object"]["operations"], ["confirm", "describe", "reset", "run", "status"])
@@ -286,6 +288,26 @@ class FacadeTests(unittest.TestCase):
                 "snapshot-1",
             )
 
+    def test_manual_proposal_accepts_an_ordered_action_sequence(self):
+        proposal = parse_action_proposal(
+            {
+                "source": "controller",
+                "actions": [
+                    {
+                        "type": "pointer.move",
+                        "coordinate": {"x": 100, "y": 100, "space": "desktop-logical"},
+                    },
+                    {"type": "pointer.scroll", "parameters": {"clicks": -3}},
+                ],
+            },
+            "snapshot-1",
+        )
+
+        self.assertEqual(
+            [action.type.value for action in proposal.action_sequence],
+            ["pointer.move", "pointer.scroll"],
+        )
+
 
 class Backend:
     def __init__(self, actions):
@@ -310,7 +332,7 @@ class QwenProposalAdapterTests(unittest.TestCase):
         frame = FrameReference("frame-q", utc_now(), "image-q", (1000, 500))
         context = ModelContext(
             "context-q", "task-q", "snapshot-q", frame, "click", 0, (), (), None, (),
-            {"single_action_only": True}, (),
+            {"ordered_action_sequence": True}, (),
         )
         return context, store
 
@@ -321,13 +343,49 @@ class QwenProposalAdapterTests(unittest.TestCase):
         self.assertEqual(proposal.action.coordinate, Point(900, 500))
         self.assertEqual(proposal.action.coordinate_space, "desktop-logical")
 
-    def test_qwen_multiple_actions_are_rejected(self):
+    def test_qwen_multiple_actions_form_one_ordered_proposal(self):
         context, store = self.context_and_store()
         provider = QwenCUAProposalProvider(
             Backend(["pyautogui.click(1, 1)", "pyautogui.click(2, 2)"]), store
         )
-        with self.assertRaisesRegex(ValueError, "exactly one action"):
-            provider.propose(context)
+        proposal = provider.propose(context)
+        self.assertEqual(len(proposal.action_sequence), 2)
+        self.assertEqual(
+            [action.coordinate for action in proposal.action_sequence],
+            [Point(-98, 2), Point(-96, 4)],
+        )
+
+    def test_qwen_preserves_a_granular_drag_as_one_proposal(self):
+        context, store = self.context_and_store()
+        provider = QwenCUAProposalProvider(
+            Backend([
+                "pyautogui.moveTo(100, 100)",
+                "pyautogui.mouseDown()",
+                "pyautogui.moveTo(300, 200)",
+                "pyautogui.mouseUp()",
+            ]),
+            store,
+        )
+
+        proposal = provider.propose(context)
+
+        self.assertEqual(
+            [action.type for action in proposal.action_sequence],
+            [
+                ActionType.POINTER_MOVE,
+                ActionType.POINTER_CLICK,
+                ActionType.POINTER_MOVE,
+                ActionType.POINTER_CLICK,
+            ],
+        )
+        self.assertEqual(
+            [action.parameters.get("event") for action in proposal.action_sequence],
+            [None, "down", None, "up"],
+        )
+        self.assertEqual(
+            [action.coordinate for action in proposal.action_sequence],
+            [Point(100, 200), Point(100, 200), Point(500, 400), Point(500, 400)],
+        )
 
     def test_unsupported_qwen_action_retains_raw_model_output(self):
         context, store = self.context_and_store()

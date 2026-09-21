@@ -70,13 +70,15 @@ class ActionProposal:
     schema_version: str = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        if self.actions and self.actions[0] != self.action:
+        if not self.actions:
+            object.__setattr__(self, "actions", (self.action,))
+        elif self.actions[0] != self.action:
             raise ValueError("proposal.action must equal the first action in actions")
 
     @property
     def action_sequence(self) -> tuple[Action, ...]:
         """Full model proposal, with legacy single-action compatibility."""
-        return self.actions or (self.action,)
+        return self.actions
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +115,7 @@ class ProposalGuard:
     hit_test_point: Point | None = None
     required_hit_window_id: str | None = None
     cursor_origin: Point | None = None
+    action_index: int = 0
     schema_version: str = SCHEMA_VERSION
 
 
@@ -136,6 +139,24 @@ class PolicyDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class AtomicActionReceipt:
+    action_index: int
+    action: Action
+    status: ExecutionStatus
+    started_at: str
+    finished_at: str
+    executor_execution_id: str | None = None
+    error_code: ReasonCode | None = None
+    schema_version: str = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.action_index < 0:
+            raise ValueError("action_index must not be negative")
+        if self.error_code is not None and not isinstance(self.error_code, ReasonCode):
+            raise TypeError("AtomicActionReceipt.error_code must be a ReasonCode or None")
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionReceipt:
     execution_id: str
     proposal_id: str
@@ -145,8 +166,12 @@ class ExecutionReceipt:
     finished_at: str
     error_code: ReasonCode | None = None
     debug_ref: str | None = None
+    executed_actions: tuple[Action, ...] = ()
+    action_receipts: tuple[AtomicActionReceipt, ...] = ()
     schema_version: str = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         if self.error_code is not None and not isinstance(self.error_code, ReasonCode):
             raise TypeError("ExecutionReceipt.error_code must be a ReasonCode or None")
+        if self.executed_actions and self.executed_action != self.executed_actions[0]:
+            raise ValueError("executed_action must equal the first executed action")

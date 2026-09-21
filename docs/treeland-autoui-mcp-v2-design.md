@@ -135,25 +135,32 @@ Core 模块之间只交换下列领域对象与 port 返回值；具体字段填
 | --- | --- |
 | `TaskContract` | 目标、权限、断言、预算 |
 | `CanonicalSnapshot` / `FrameReference` | 标准化桌面观察 |
-| `ActionProposal` | 单个 canonical action、来源 snapshot、可选 `claimed_intent` |
+| `ActionProposal` | 非空、有序的 canonical action 序列、来源 snapshot、可选 `claimed_intent`；`action` 是首动作兼容视图 |
 | `PolicyDecision` | `allow`、`deny`、`confirm`、`stale`、`invalid` |
-| `ExecutionReceipt` | `delivered`、`failed`、`unknown` |
+| `ExecutionReceipt` | Proposal 级 `delivered`、`failed`、`unknown`，以及逐原子动作回执 |
 | `EvidenceRecord` | provider 对 subject 的事实材料 |
 | `AssertionResult` | 对 TaskContract assertion 的结论及排除材料 |
 | `TaskState` | `running`、`needs-confirmation`、`retrying`、`completed`、`failed` |
 
 领域错误使用统一 `ReasonCode`。诊断 Attribution 可补充 stage、owner 和 event kind，但不得另建错误码体系。
 
-## 单动作事务
+## Proposal 事务与动作序列
 
 ```text
 observe → proposal → decision
                     ├─ deny / confirm / stale / invalid → TaskState
-                    └─ allow → ActionExecutor → Receipt → evidence → assertion → TaskState
+                    └─ allow → preflight all guards
+                                  ├─ stale → TaskState（零注入）
+                                  └─ action[0..n] → aggregate Receipt
+                                                         → observe → evidence → assertion → TaskState
 ```
 
-Guard 只重检动作依赖条件。条件失效产生新的 `PolicyDecision(status=stale)`；执行器失败产生唯一
-`ExecutionReceipt(status=failed)`。Qwen pending proposal 由 Decision 或 Receipt 终结，不能伪造 Receipt。
+一次模型输出是一个 Proposal，无论模型用一个高层动作，还是用移动、按下、移动、释放等多个动作表达。
+策略、确认和审计按 Proposal 裁决一次；每个原子动作仍保留自己的 Guard 和回执。执行前统一重检全部
+Guard，任一失效则产生新的 `PolicyDecision(status=stale)`，且不注入任何动作。执行阶段严格按序，
+任一步失败就停止剩余动作，并产生唯一的 Proposal 级 `ExecutionReceipt(status=failed)`，其中保留已尝试
+动作的明细。动作间不重新调用模型，也不重新观察桌面；只有序列结束后才统一观察并评估断言。
+Qwen pending proposal 由 Decision 或 Proposal 级 Receipt 终结，不能伪造 Receipt。
 
 ## 公开协议
 

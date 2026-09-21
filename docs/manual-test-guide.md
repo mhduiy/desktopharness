@@ -24,7 +24,7 @@ gui_run(operation="describe")
 真实 Treeland 测试前还应在同一桌面会话执行 `treeland-debug --json tree`。它必须输出非空 JSON；
 否则记录为环境阻塞，不进入任务成功率或模型失败率。
 
-通过标准：返回 `protocol_version=2`、`schema_revision=2.1-p4`，列出当前 compositor、provider、可用
+通过标准：返回 `protocol_version=2`、`schema_revision=2.1-p5`，列出当前 compositor、provider、可用
 actions，以及公开的 `run`、`status`、`confirm`、`reset` 和诊断 operation。若 capability 或 provider 缺失，记录为环境阻塞，不能
 记为模型或执行器失败。
 
@@ -46,19 +46,20 @@ ExecutionReceipt、Evidence、AssertionResult、TaskState、attribution 与恢�
 | ID | 场景 | 操作 | 通过标准 |
 | --- | --- | --- | --- |
 | V2-01 | 观察与协议发现 | `gui_run(describe)`、`gui_diagnostic(observe)` | 返回 canonical snapshot；Treeland 原始树只以 artifact 引用存在。 |
-| V2-02 | 人工提案无副作用 | `gui_diagnostic(observe/propose/decide)`，不执行 | Proposal 只有一个 canonical action；未产生输入副作用。 |
-| V2-03 | Qwen 单步提案 | `gui_diagnostic(propose)`（不传 proposal） | Qwen 输出被解析为单个 Proposal；原始输出仅出现在 `debug_ref`。 |
+| V2-02 | 人工提案无副作用 | `gui_diagnostic(observe/propose/decide)`，不执行 | Proposal 含一个或多个有序 canonical action；未产生输入副作用。 |
+| V2-03 | Qwen Proposal | `gui_diagnostic(propose)`（不传 proposal） | 一次 Qwen 输出被解析为一个 Proposal，多个 `tool_call` 保序收纳；原始输出仅出现在 `debug_ref`。 |
 | V2-04 | 允许动作 | `gui_diagnostic(decide/execute/evaluate)` | 先有 PolicyDecision 和 Guard；回执与任务状态分离。 |
 | V2-05 | 确认动作 | 提交无独立语义证据的输入/编辑提案，再 `confirm` | 首次返回 `needs-confirmation`；只有 `confirm` 允许继续。 |
 | V2-06 | 遮挡或目标变化 | 提案后遮挡、移动或关闭目标窗口，再执行 | Guard 拒绝且没有输入注入；返回稳定错误码及 `capture-new-frame` 等恢复建议。 |
 | V2-07 | 证据不足 | 执行一个无法由 compositor 证明业务结果的动作并 `gui_diagnostic(evaluate)` | 不得 `completed`；TaskState 保持 `running`，归因不把 unknown 当失败或成功。 |
 | V2-08 | 任务完成 | 使用 `active_window.app_id` 等可独立验证的 assertion | 所有 required assertions 通过后，且仅由 Reducer 给出 `completed`。 |
-| V2-09 | 有界自动循环 | `gui_run(operation="run", max_iterations=...)` | 每轮遵循单动作事务；确认、拒绝、无进展、预算耗尽或终态时停止并返回原因。 |
+| V2-09 | 有界自动循环 | `gui_run(operation="run", max_iterations=...)` | 每轮遵循 Proposal 事务；动作序列执行后只观察、评估一次；确认、拒绝、无进展、预算耗尽或终态时停止并返回原因。 |
 | V2-10 | 诊断与重置 | `gui_run(status/reset)`、`gui_diagnostic(trace)` | trace 可追溯对象/因果关系；reset 后同一 task 可重新开始。 |
 | V2-11 | 持久审计重启复核 | 以相同 `audit.directory` 结束一次事务后重启服务 | CSV 事件、对象和 artifact 仍可按引用读取；不要求恢复运行态。 |
 | V2-12 | Reset 审计保留 | 对已有事件的 task 调用 `reset` | 既有事件保留，末尾追加 `task.reset`，不重写删除历史。 |
 | V2-13 | 审计保留清理 | 构造含多个 artifact 的过期对象或超容量归档 | 被清理对象及其全部 artifact 同时移除；不留下断链或孤儿。 |
 | V2-14 | 便携归档 | 在 TUI 中导出 `.tar.gz`，复制到另一台机器后打开 | `manifest.json` 校验所有成员；完整归档可浏览和导出 artifact；校验失败必须拒绝打开。 |
+| V2-15 | 多动作 Proposal | 让 Qwen 在一次响应中返回安全的 `pointer.move` + `pointer.scroll`，权限同时包含两者 | 只产生一个 Proposal/Decision/Receipt；动作按序执行，结束后观察一次；trace 含逐动作回执。若第二步失败，后续动作不得执行。 |
 
 ## 4. 桌面适配器用例
 

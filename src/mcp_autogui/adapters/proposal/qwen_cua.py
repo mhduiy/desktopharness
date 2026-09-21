@@ -1,8 +1,9 @@
-"""Qwen-CUA adapter that emits exactly one canonical ActionProposal."""
+"""Qwen-CUA adapter that emits one canonical, possibly multi-action Proposal."""
 
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from ...core.models import (
@@ -80,17 +81,32 @@ class QwenCUAProposalProvider:
         debug_ref = self._store.put(result, prefix="model-output")
         try:
             parsed = parse_qwen_actions(result.get("actions", []))
-            if len(parsed) != 1:
-                raise ValueError("Qwen-CUA v2 must return exactly one action")
+            if not parsed:
+                raise ValueError("Qwen-CUA v2 must return at least one action")
             snapshot: CanonicalSnapshot = self._store.require(context.based_on_snapshot)
-            action = canonical_action_from_parsed(parsed[0], snapshot, context.frame.pixel_size)
+            canonical_actions: list[Action] = []
+            working_snapshot = snapshot
+            for item in parsed:
+                action = canonical_action_from_parsed(
+                    item, working_snapshot, context.frame.pixel_size
+                )
+                canonical_actions.append(action)
+                if action.coordinate is not None and action.type in {
+                    ActionType.POINTER_MOVE,
+                    ActionType.POINTER_CLICK,
+                    ActionType.POINTER_DOUBLE_CLICK,
+                    ActionType.POINTER_DRAG,
+                }:
+                    working_snapshot = replace(working_snapshot, cursor=action.coordinate)
+            actions = tuple(canonical_actions)
         except (KeyError, TypeError, ValueError) as exc:
             raise QwenProposalError(str(exc), debug_ref) from exc
         return ActionProposal(
             proposal_id=new_id("proposal"),
             source="qwen-cua",
             based_on_snapshot=context.based_on_snapshot,
-            action=action,
+            action=actions[0],
+            actions=actions,
             claimed_intent=None,
             debug_ref=debug_ref,
         )
@@ -99,7 +115,10 @@ class QwenCUAProposalProvider:
         recorder = getattr(self._backend, "record_execution", None)
         if not callable(recorder):
             return {"ok": False, "message": "execution feedback unsupported"}
-        if receipt.status.value == "delivered" and getattr(receipt.executed_action, "type", None) == ActionType.DONE:
+        executed = tuple(getattr(receipt, "executed_actions", ())) or (
+            (receipt.executed_action,) if receipt.executed_action is not None else ()
+        )
+        if receipt.status.value == "delivered" and executed and executed[-1].type == ActionType.DONE:
             status = "partial"
             reason = "DONE triggers evidence collection; task completion is not established"
         else:
@@ -148,7 +167,7 @@ class QwenCUAProposalProvider:
             "primary_attribution": context.primary_attribution,
             "projection_limits": context.projection_limits,
         }
-        return "Use the screenshot and this controller context. Return one action only.\n" + json.dumps(
+        return "Use the screenshot and this controller context. Return one proposal.\n" + json.dumps(
             to_primitive(projection), ensure_ascii=False
         )
 

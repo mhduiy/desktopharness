@@ -42,6 +42,7 @@ from mcp_autogui.core.models import (
     TaskStatus,
     WindowRole,
     new_id,
+    to_primitive,
     utc_now,
 )
 from mcp_autogui.core.orchestrator import CoreOrchestrator
@@ -192,6 +193,25 @@ class CanonicalAdapterTests(unittest.TestCase):
 
 
 class ActionGateTests(unittest.TestCase):
+    def test_unclassified_later_action_cannot_hide_behind_navigation(self):
+        actions = (
+            Action(ActionType.POINTER_MOVE, Point(100, 100), "desktop-logical"),
+            Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),
+        )
+        proposal = ActionProposal(
+            new_id("proposal"), "qwen-cua", "snapshot-1", actions[0], actions
+        )
+        gate = ActionGate(descriptor(), lambda point, current: "desktop")
+
+        decision, _, _ = gate.decide(
+            proposal,
+            contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_CLICK}),
+            snapshot(),
+        )
+
+        self.assertEqual(decision.status, PolicyStatus.CONFIRM)
+        self.assertEqual(decision.reason_code, ReasonCode.CONFIRMATION_REQUIRED)
+
     def test_sequence_is_denied_when_a_later_action_lacks_permission(self):
         proposal = ActionProposal(
             proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
@@ -201,7 +221,9 @@ class ActionGateTests(unittest.TestCase):
                 Action(ActionType.POINTER_CLICK, Point(10, 10), "desktop-logical"),
             ),
         )
-        decision, _, _ = ActionGate(descriptor()).decide(
+        decision, _, _ = ActionGate(
+            descriptor(), lambda point, current: "desktop"
+        ).decide(
             proposal, contract(actions={ActionType.POINTER_MOVE}), snapshot()
         )
         self.assertEqual(decision.status, PolicyStatus.DENY)
@@ -327,6 +349,178 @@ class EvidenceAndStateTests(unittest.TestCase):
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_action_sequence_executes_in_order_and_records_one_aggregate_receipt(self):
+        class RecordingExecutor(FakeExecutor):
+            def __init__(self):
+                self.actions = []
+
+            def execute(self, proposal):
+                self.actions.append(proposal.action)
+                return super().execute(proposal)
+
+        actions = (
+            Action(ActionType.POINTER_MOVE, Point(100, 100), "desktop-logical"),
+            Action(ActionType.POINTER_SCROLL, parameters={"clicks": -3}),
+        )
+        executor = RecordingExecutor()
+        runtime = CoreOrchestrator(
+            FakeCompositor([snapshot(), replace(snapshot(), snapshot_id="snapshot-2")]),
+            executor,
+        )
+        runtime.register_task(
+            contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL})
+        )
+        observed = runtime.observe("task-1")
+        proposal = ActionProposal(
+            new_id("proposal"), "fixture", observed.snapshot_id, actions[0], actions
+        )
+        runtime.submit_proposal("task-1", proposal)
+
+        receipt = runtime.execute(proposal.proposal_id)
+
+        self.assertEqual(receipt.status, ExecutionStatus.DELIVERED)
+        self.assertEqual(executor.actions, list(actions))
+        self.assertEqual(receipt.executed_actions, actions)
+        self.assertEqual([item.action_index for item in receipt.action_receipts], [0, 1])
+        serialized = to_primitive(runtime.store.require(receipt.execution_id))
+        self.assertEqual(len(serialized["action_receipts"]), 2)
+        self.assertEqual(serialized["action_receipts"][1]["action"]["type"], "pointer.scroll")
+        self.assertEqual(runtime.status("task-1").step, 1)
+        self.assertEqual(
+            sum(
+                event.event_type == "execution.completed"
+                for event in runtime.ledger.events("task-1")
+            ),
+            1,
+        )
+
+    def test_action_sequence_stops_after_first_failed_atomic_action(self):
+        class FailsSecondExecutor(FakeExecutor):
+            def __init__(self):
+                self.actions = []
+
+            def execute(self, proposal):
+                self.actions.append(proposal.action)
+                if len(self.actions) == 2:
+                    now = utc_now()
+                    return ExecutionReceipt(
+                        new_id("execution"), proposal.proposal_id,
+                        ExecutionStatus.FAILED, None, now, now,
+                        ReasonCode.EXECUTOR_ACTION_FAILED,
+                    )
+                return super().execute(proposal)
+
+        actions = (
+            Action(ActionType.POINTER_MOVE, Point(100, 100), "desktop-logical"),
+            Action(ActionType.POINTER_SCROLL, parameters={"clicks": -3}),
+            Action(ActionType.POINTER_MOVE, Point(200, 200), "desktop-logical"),
+        )
+        executor = FailsSecondExecutor()
+        runtime = CoreOrchestrator(
+            FakeCompositor([snapshot(), replace(snapshot(), snapshot_id="snapshot-2")]),
+            executor,
+        )
+        runtime.register_task(
+            contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL})
+        )
+        observed = runtime.observe("task-1")
+        proposal = ActionProposal(
+            new_id("proposal"), "fixture", observed.snapshot_id, actions[0], actions
+        )
+        runtime.submit_proposal("task-1", proposal)
+
+        receipt = runtime.execute(proposal.proposal_id)
+
+        self.assertEqual(receipt.status, ExecutionStatus.FAILED)
+        self.assertEqual(executor.actions, list(actions[:2]))
+        self.assertEqual(receipt.executed_actions, actions[:1])
+        self.assertEqual(len(receipt.action_receipts), 2)
+        self.assertEqual(runtime.status("task-1").status, TaskStatus.FAILED)
+
+    def test_run_step_observes_only_before_and_after_the_action_sequence(self):
+        class CountingCompositor(FakeCompositor):
+            def __init__(self, snapshots):
+                super().__init__(snapshots)
+                self.calls = 0
+
+            def observe(self):
+                self.calls += 1
+                return super().observe()
+
+        class SequenceProvider:
+            provider_id = "sequence-fixture"
+
+            def propose(self, context):
+                actions = (
+                    Action(ActionType.POINTER_MOVE, Point(100, 100), "desktop-logical"),
+                    Action(ActionType.POINTER_SCROLL, parameters={"clicks": -3}),
+                )
+                return ActionProposal(
+                    new_id("proposal"), self.provider_id,
+                    context.based_on_snapshot, actions[0], actions,
+                )
+
+        class ObservationRecordingExecutor(FakeExecutor):
+            def __init__(self, compositor):
+                self.compositor = compositor
+                self.observation_counts = []
+
+            def execute(self, proposal):
+                self.observation_counts.append(self.compositor.calls)
+                return super().execute(proposal)
+
+        compositor = CountingCompositor([
+            snapshot(),
+            snapshot(snapshot_id="snapshot-2"),
+            snapshot(snapshot_id="snapshot-3"),
+        ])
+        executor = ObservationRecordingExecutor(compositor)
+        runtime = CoreOrchestrator(
+            compositor, executor, proposal_provider=SequenceProvider()
+        )
+        runtime.register_task(
+            contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL})
+        )
+
+        outcome = runtime.run_step("task-1")
+
+        self.assertEqual(outcome["receipt"].status, ExecutionStatus.DELIVERED)
+        self.assertEqual(executor.observation_counts, [2, 2])
+        self.assertEqual(compositor.calls, 3)
+
+    def test_missing_sequence_guard_fails_closed_before_input(self):
+        class CountingExecutor(FakeExecutor):
+            def __init__(self):
+                self.calls = 0
+
+            def execute(self, proposal):
+                self.calls += 1
+                return super().execute(proposal)
+
+        executor = CountingExecutor()
+        runtime = CoreOrchestrator(
+            FakeCompositor([snapshot(), snapshot(snapshot_id="snapshot-2")]),
+            executor,
+        )
+        runtime.policy_providers = (
+            type("Policy", (), {"independent_tags": lambda *_: [
+                SemanticTag("navigation", "fixture", None, EvidenceConfidence.DETERMINISTIC)
+            ]})(),
+        )
+        runtime.register_task(contract())
+        observed = runtime.observe("task-1")
+        proposal = click_proposal(observed.snapshot_id)
+        runtime.submit_proposal("task-1", proposal)
+        decision = runtime.decide(proposal.proposal_id)
+        for guard_ref in decision.guard_refs:
+            runtime._tasks._guards.pop(guard_ref)
+
+        result = runtime.execute(proposal.proposal_id)
+
+        self.assertEqual(result.status, PolicyStatus.STALE)
+        self.assertEqual(result.reason_code, ReasonCode.OBJECT_NOT_FOUND)
+        self.assertEqual(executor.calls, 0)
+
     def test_invalid_model_proposal_records_its_debug_artifact(self):
         class InvalidProposalProvider:
             def __init__(self, store):

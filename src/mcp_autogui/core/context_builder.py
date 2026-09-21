@@ -69,7 +69,8 @@ class ContextBuilder:
             recent_execution_receipt=(to_primitive(recent_receipt) if recent_receipt else None),
             assertion_feedback=feedback,
             constraints={
-                "single_action_only": True,
+                "ordered_action_sequence": True,
+                "observe_after_proposal": True,
                 "remaining_steps": max(0, contract.limits.max_steps - state.step),
                 "policy_profile": contract.policy_profile,
             },

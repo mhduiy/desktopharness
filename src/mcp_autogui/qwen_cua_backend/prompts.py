@@ -35,12 +35,13 @@ DESCRIPTION_TEMPLATE = """Use a mouse and keyboard to interact with a desktop GU
 {resolution_info}
 * Consult the latest screenshot before choosing a coordinate.
 * Aim at the visible center of a control unless the task explicitly requires an edge.
-* Return only the next action, not an entire speculative action sequence.
-* Emit exactly one `<tool_call>` block, then stop. Never repeat a tool call."""
+* Return the minimal ordered action sequence that should be executed before the
+  desktop is observed again. A sequence may contain multiple `<tool_call>` blocks.
+* Do not include actions that depend on UI changes caused by earlier actions."""
 
 SYSTEM_TEMPLATE = """# Tools
 
-You may call one function for the next GUI step. The function signature is inside
+You may call the function one or more times for the next GUI proposal. The function signature is inside
 <tools></tools> XML tags:
 <tools>
 {tools_xml}
@@ -48,11 +49,13 @@ You may call one function for the next GUI step. The function signature is insid
 
 # Response format
 
-Return exactly:
-Action: a short imperative describing the next UI action.
+Return:
+Action: a short imperative describing the proposed GUI transaction.
 <tool_call>
 {{"name": "computer_use", "arguments": {{...}}}}
 </tool_call>
+
+Repeat the `<tool_call>` block only when the proposal requires an ordered action sequence.
 
 Do not output executable Python. To finish, call `terminate` with a status."""
 

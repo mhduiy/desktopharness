@@ -167,21 +167,24 @@ class EmbeddedAgentTests(unittest.TestCase):
         prompt = build_system_prompt("relative", (992, 800))
         self.assertNotIn('"wait"', prompt)
 
-    def test_parse_s2_rejects_multiple_tool_calls(self):
-        response = """Action: Repeated move
+    def test_parse_s2_preserves_multiple_tool_calls_in_order(self):
+        response = """Action: Move then scroll
 <tool_call>
 {"name":"computer_use","arguments":{"action":"mouse_move","coordinate":[500,500]}}
 </tool_call>
 <tool_call>
-{"name":"computer_use","arguments":{"action":"mouse_move","coordinate":[500,500]}}
+{"name":"computer_use","arguments":{"action":"scroll","pixels":-3}}
 </tool_call>"""
-        with self.assertRaisesRegex(ValueError, "exactly one"):
-            parse_s2_response(
-                response,
-                original_size=(1000, 800),
-                processed_size=(992, 800),
-                coordinate_type="relative",
-            )
+        _, actions = parse_s2_response(
+            response,
+            original_size=(1000, 800),
+            processed_size=(992, 800),
+            coordinate_type="relative",
+        )
+        self.assertEqual(
+            actions,
+            ["pyautogui.moveTo(500, 400)", "pyautogui.scroll(-3)"],
+        )
 
     def test_agent_rejects_oversized_model_response(self):
         response_text = "x" * 1025

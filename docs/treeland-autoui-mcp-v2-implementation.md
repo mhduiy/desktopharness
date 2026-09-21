@@ -45,7 +45,7 @@ uv run --with pytest pytest -q
 | --- | --- |
 | MCP 注册与依赖组装 | `src/mcp_autogui/mcp_autogui_main.py`、`src/mcp_autogui/runtime_description.py` |
 | 公开与诊断协议 | `src/mcp_autogui/facade.py`、`src/mcp_autogui/protocol_response.py` |
-| 单步事务与有界运行 | `src/mcp_autogui/core/orchestrator.py` |
+| Proposal 事务与有界运行 | `src/mcp_autogui/core/orchestrator.py` |
 | Proposal、Decision、Receipt | `src/mcp_autogui/core/transaction.py` |
 | TaskContract 与 TaskState | `src/mcp_autogui/core/task.py`、`src/mcp_autogui/core/task_state.py` |
 | 运行态与事实记录 | `src/mcp_autogui/core/task_repository.py`、`src/mcp_autogui/core/transaction_recorder.py` |
@@ -92,13 +92,21 @@ Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路�
 - **新执行器**：实现 `ports/executor.py`；只返回实际执行事实，不判断业务成功。
 - **新模型**：实现 `ports/proposal.py` 并注册 provider；每次产生一个 Proposal，可包含有序动作序列。
 
-## Proposal 动作序列实施计划
+## Proposal 动作序列实现
 
-1. 将 `ActionProposal.action` 演进为非空 `actions`，保留单动作输入兼容层。
-2. 将 PolicyDecision、确认、Guard 与 Receipt 以 Proposal 为主单位；Receipt 保存每个原子动作明细。
-3. 执行器按序执行，不在动作间重新调用模型；任一步失败或 Guard 拒绝即停止后续动作。
-4. 序列结束后统一 capture observation、Evidence 与 AssertionResult；高风险序列仅确认一次。
-5. 更新 Qwen 及其他 provider 的解析、审计 schema、trace、持久化迁移和跨模型测试。
+- `ActionProposal.actions` 是非空有序序列；`action` 保留为首动作兼容视图，旧单动作输入会规范化为
+  长度为一的序列。
+- `PolicyDecision`、语义策略与用户确认以整个 Proposal 为单位。Core 为需要环境依赖的原子动作保存
+  有序 Guard，并在首次注入前统一重检，避免部分执行后才发现 Proposal 已失效。
+- Core 依次把原子动作交给现有执行器。动作间不调用 provider、不 capture 新 observation；首个失败会
+  截断余下序列。Proposal 级 `ExecutionReceipt` 保存 `executed_actions` 和 `action_receipts`，trace 与
+  持久审计沿用统一对象序列化，无第二套审计格式。
+- 只有完整序列送达后才 capture observation、收集 Evidence 并评估 Assertion；任务步数按 Proposal
+  增长一次。失败序列保留部分执行事实，但不会进入成功评估。
+- Qwen parser 接受同一响应中的一个或多个 `tool_call`，保持模型顺序；prompt 允许模型按自身粒度返回
+  最小动作序列，但禁止把依赖前一步界面变化的动作预先打包。其他 provider 只需返回相同领域对象。
+- schema revision 为 `2.1-p5`；序列权限、语义合并、Guard、短路执行、原子回执和多 tool-call 解析均有
+  自动回归覆盖。
 - **新证据源**：实现 `ports/evidence.py`，声明标准 fact path，并覆盖 unknown、conflict 和过期证据。
 
 扩展不得增加第二套公开状态、错误码 registry 或平台条件分支。未知 provider、重复注册和无效配置必须
@@ -110,7 +118,7 @@ Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路�
 
 1. 安装服务证书到系统信任库，通过 HTTPS 调用实际 MCP 入口。
 2. 运行 `autoui-smoke`，确认 tree、provider 和 `gui_run(describe)` 均可用。
-3. 按 `manual-test-guide.md` 执行 V2-01～V2-10，并保存必要 trace 与 artifact 引用。
+3. 按 `manual-test-guide.md` 执行 V2-01～V2-15，并保存必要 trace 与 artifact 引用。
 4. 将证书、代理、桌面会话或外部服务问题记为环境阻塞；领域失败按 ReasonCode 与 Attribution 归因。
 
 ## 文档维护

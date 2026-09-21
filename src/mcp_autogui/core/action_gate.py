@@ -66,14 +66,32 @@ class ActionGate:
         snapshot: CanonicalSnapshot,
         independent_tags: Sequence[SemanticTag] = (),
     ) -> tuple[PolicyDecision, ProposalGuard | None, SemanticResolution]:
+        decision, guards, resolution = self.decide_with_guards(
+            proposal, contract, snapshot, independent_tags
+        )
+        return decision, guards[0] if guards else None, resolution
+
+    def decide_with_guards(
+        self,
+        proposal: ActionProposal,
+        contract: TaskContract,
+        snapshot: CanonicalSnapshot,
+        independent_tags: Sequence[SemanticTag] = (),
+    ) -> tuple[PolicyDecision, tuple[ProposalGuard, ...], SemanticResolution]:
+        """Decide one model proposal and return its ordered action guards."""
         resolution = self.resolve_semantics(proposal, independent_tags)
         invalid = self._mechanical_check(proposal, contract, snapshot)
         if invalid is not None:
-            return self._decision(proposal, invalid[0], invalid[1], resolution), None, resolution
+            return self._decision(proposal, invalid[0], invalid[1], resolution), (), resolution
 
-        guard, guard_error = self._derive_guard(proposal, snapshot)
+        guards, guard_error = self._derive_sequence_guards(proposal, snapshot)
         if guard_error is not None:
-            return self._decision(proposal, guard_error[0], guard_error[1], resolution), None, resolution
+            return (
+                self._decision(proposal, guard_error[0], guard_error[1], resolution),
+                (),
+                resolution,
+            )
+        guard = guards[0] if guards else None
 
         policy_status, reason = self._evaluate_policy(resolution, contract)
         decision = PolicyDecision(
@@ -86,38 +104,62 @@ class ActionGate:
                 else {}
             ),
             guard_ref=guard.guard_id if guard is not None else None,
+            guard_refs=tuple(item.guard_id for item in guards),
             semantic_resolution_ref=resolution.semantic_resolution_id,
         )
-        return decision, guard, resolution
+        return decision, guards, resolution
 
     def derive_sequence_guards(
         self, proposal: ActionProposal, snapshot: CanonicalSnapshot
     ) -> tuple[ProposalGuard, ...]:
         """Build per-action guards without changing the legacy decision API."""
+        guards, error = self._derive_sequence_guards(proposal, snapshot)
+        if error is not None:
+            raise ValueError(error[1].value)
+        return guards
+
+    def _derive_sequence_guards(
+        self, proposal: ActionProposal, snapshot: CanonicalSnapshot
+    ) -> tuple[
+        tuple[ProposalGuard, ...], tuple[PolicyStatus, ReasonCode] | None
+    ]:
         guards: list[ProposalGuard] = []
-        for action in proposal.action_sequence:
+        working_snapshot = snapshot
+        for action_index, action in enumerate(proposal.action_sequence):
             guard, error = self._derive_guard(
-                replace(proposal, action=action, actions=()), snapshot
+                replace(proposal, action=action, actions=()), working_snapshot, action_index
             )
             if error is not None:
-                raise ValueError(error[1].value)
+                return (), error
             if guard is not None:
                 guards.append(guard)
-        return tuple(guards)
+            if action.coordinate is not None and action.type in {
+                ActionType.POINTER_MOVE,
+                ActionType.POINTER_CLICK,
+                ActionType.POINTER_DOUBLE_CLICK,
+                ActionType.POINTER_DRAG,
+            }:
+                working_snapshot = replace(working_snapshot, cursor=action.coordinate)
+        return tuple(guards), None
 
     @staticmethod
     def resolve_semantics(
         proposal: ActionProposal, independent_tags: Sequence[SemanticTag]
     ) -> SemanticResolution:
         tags = list(independent_tags)
-        if proposal.action.type == ActionType.APPLICATION_LAUNCH:
-            tags.append(SemanticTag("open_application", "action-schema", None, EvidenceConfidence.DETERMINISTIC))
-        elif proposal.action.type == ActionType.KEYBOARD_TEXT:
-            tags.append(SemanticTag("content_edit", "action-schema", None, EvidenceConfidence.DERIVED))
-        elif proposal.action.type in {ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL}:
-            tags.append(SemanticTag("navigation", "action-schema", None, EvidenceConfidence.DETERMINISTIC))
-        elif proposal.action.type == ActionType.DONE:
-            tags.append(SemanticTag("navigation", "action-schema", None, EvidenceConfidence.DETERMINISTIC))
+        has_unclassified_action = False
+        for action in proposal.action_sequence:
+            if action.type == ActionType.APPLICATION_LAUNCH:
+                tags.append(SemanticTag("open_application", "action-schema", None, EvidenceConfidence.DETERMINISTIC))
+            elif action.type == ActionType.KEYBOARD_TEXT:
+                tags.append(SemanticTag("content_edit", "action-schema", None, EvidenceConfidence.DERIVED))
+            elif action.type in {ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL, ActionType.DONE}:
+                tags.append(SemanticTag("navigation", "action-schema", None, EvidenceConfidence.DETERMINISTIC))
+            else:
+                has_unclassified_action = True
+
+        if has_unclassified_action and not independent_tags:
+            tags.append(SemanticTag("unknown", "action-schema", None, EvidenceConfidence.DERIVED))
 
         if proposal.claimed_intent:
             tags.append(
@@ -131,16 +173,27 @@ class ActionGate:
         independent = [tag for tag in tags if tag.confidence != EvidenceConfidence.MODEL_CLAIM]
         if not independent:
             tags.append(SemanticTag("unknown", "action-gate", None, EvidenceConfidence.DERIVED))
+        has_unknown = any(
+            tag.tag == "unknown" and tag.confidence != EvidenceConfidence.MODEL_CLAIM
+            for tag in tags
+        )
         return SemanticResolution(
             semantic_resolution_id=new_id("semantic-resolution"),
             proposal_id=proposal.proposal_id,
-            status="resolved" if independent else "unknown",
+            status="unknown" if has_unknown else "resolved",
             tags=tuple(tags),
         )
 
     def _mechanical_check(
         self, proposal: ActionProposal, contract: TaskContract, snapshot: CanonicalSnapshot
     ) -> tuple[PolicyStatus, ReasonCode] | None:
+        done_indexes = [
+            index
+            for index, action in enumerate(proposal.action_sequence)
+            if action.type == ActionType.DONE
+        ]
+        if done_indexes and done_indexes != [len(proposal.action_sequence) - 1]:
+            return PolicyStatus.INVALID, ReasonCode.MODEL_PROTOCOL_INVALID
         for action in proposal.action_sequence:
             if action.type not in contract.permissions.actions:
                 return PolicyStatus.DENY, ReasonCode.MECHANICAL_PERMISSION_DENIED
@@ -152,7 +205,10 @@ class ActionGate:
         return None
 
     def _derive_guard(
-        self, proposal: ActionProposal, snapshot: CanonicalSnapshot
+        self,
+        proposal: ActionProposal,
+        snapshot: CanonicalSnapshot,
+        action_index: int = 0,
     ) -> tuple[ProposalGuard | None, tuple[PolicyStatus, ReasonCode] | None]:
         action = proposal.action
         target_id: str | None = None
@@ -164,7 +220,7 @@ class ActionGate:
             if action.parameters.get("relative"):
                 if snapshot.cursor is None:
                     return None, (PolicyStatus.INVALID, ReasonCode.CAPABILITY_UNAVAILABLE)
-                cursor_origin = snapshot.cursor
+                cursor_origin = snapshot.cursor if action_index == 0 else None
             if action.type == ActionType.POINTER_DRAG:
                 if snapshot.cursor is None:
                     return None, (PolicyStatus.INVALID, ReasonCode.CAPABILITY_UNAVAILABLE)
@@ -172,7 +228,7 @@ class ActionGate:
                 # destination was already checked against desktop bounds, but
                 # target identity and occlusion belong to the source point.
                 point = snapshot.cursor
-                cursor_origin = snapshot.cursor
+                cursor_origin = snapshot.cursor if action_index == 0 else None
             if not self._descriptor.capabilities.stacking.hit_test:
                 return None, (PolicyStatus.INVALID, ReasonCode.CAPABILITY_UNAVAILABLE)
             target_id = self._hit_test(point, snapshot) if point is not None else None
@@ -224,6 +280,7 @@ class ActionGate:
                 hit_test_point=point,
                 required_hit_window_id=target_id if require_hit else None,
                 cursor_origin=cursor_origin,
+                action_index=action_index,
             ),
             None,
         )
