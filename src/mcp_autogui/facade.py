@@ -210,6 +210,23 @@ class AutoUIFacade:
                 "object_ref": object_ref,
                 "object": expanded,
             }
+        if operation == "trace":
+            resolved_task = task_id.strip()
+            if not resolved_task:
+                raise ValueError("task_id is required")
+            events = self.runtime.ledger.events(resolved_task)
+            if not events:
+                raise KeyError(f"unknown task: {resolved_task}")
+            return {
+                "protocol_version": 2,
+                "operation": "trace",
+                "status": "ok",
+                "events": [to_primitive(item) for item in events],
+                "attributions": [
+                    to_primitive(item)
+                    for item in self.runtime.attributions(resolved_task)
+                ],
+            }
 
         resolved_task = self._prepare_task(task_id, task_contract)
         if operation == "observe":
@@ -274,20 +291,6 @@ class AutoUIFacade:
                 ref,
                 resolved_task,
             )
-        if operation == "trace":
-            return {
-                "protocol_version": 2,
-                "operation": "trace",
-                "status": "ok",
-                "events": [
-                    to_primitive(item)
-                    for item in self.runtime.ledger.events(resolved_task)
-                ],
-                "attributions": [
-                    to_primitive(item)
-                    for item in self.runtime.attributions(resolved_task)
-                ],
-            }
         raise ValueError(f"unsupported gui_diagnostic operation: {operation}")
 
     def _prepare_task(

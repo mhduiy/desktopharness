@@ -866,7 +866,7 @@ class CoreOrchestrator:
         )
 
     def attributions(self, task_id: str) -> tuple[Attribution, ...]:
-        self._require_task(task_id)
+        """Return current or historical audit attribution facts for a task."""
         return self._audit.attributions(task_id)
 
     def primary_attribution(self, task_id: str) -> Attribution | None:

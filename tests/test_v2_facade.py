@@ -207,6 +207,26 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(delivered["status"], "running")
         self.assertEqual(repeated["object_ref"], delivered["object_ref"])
 
+    def test_task_trace_remains_available_after_reset(self):
+        self.facade.handle_diagnostic("observe", task_contract=TASK)
+        reset = self.facade.handle("reset", task_id="portable-task")
+
+        traced = self.facade.handle_diagnostic(
+            "trace", task_id="portable-task"
+        )
+
+        self.assertEqual(reset["status"], "completed")
+        self.assertEqual(traced["status"], "ok")
+        self.assertEqual(traced["events"][-1]["event_type"], "task.reset")
+
+    def test_task_trace_rejects_a_truly_unknown_task(self):
+        response = self.facade.handle_diagnostic(
+            "trace", task_id="never-created"
+        )
+
+        self.assertEqual(response["status"], "failed")
+        self.assertEqual(response["error"]["code"], ReasonCode.OBJECT_NOT_FOUND)
+
     def test_run_exposes_the_bounded_automatic_transaction_loop(self):
         runtime = CoreOrchestrator(
             Compositor(),
