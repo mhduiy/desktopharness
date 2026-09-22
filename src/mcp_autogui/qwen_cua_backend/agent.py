@@ -337,7 +337,7 @@ def _computer_use_to_actions(
         )
         function = coordinate_actions[action]
         if action == "left_click_drag":
-            duration = _bounded_number(arguments.get("duration", 0.5), 0.0, 30.0, "duration")
+            duration = _bounded_number(arguments.get("duration", 1.2), 0.0, 30.0, "duration")
             return [f"pyautogui.{function}({x}, {y}, duration={duration})"]
         return [f"pyautogui.{function}({x}, {y})"]
     if action == "type":

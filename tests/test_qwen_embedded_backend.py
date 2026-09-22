@@ -167,6 +167,12 @@ class EmbeddedAgentTests(unittest.TestCase):
         prompt = build_system_prompt("relative", (992, 800))
         self.assertNotIn('"wait"', prompt)
 
+    def test_system_prompt_requires_positioning_before_scroll(self):
+        prompt = build_system_prompt("relative", (992, 800))
+
+        self.assertIn("mouse_move", prompt)
+        self.assertIn("current cursor position", prompt)
+
     def test_parse_s2_preserves_multiple_tool_calls_in_order(self):
         response = """Action: Move then scroll
 <tool_call>

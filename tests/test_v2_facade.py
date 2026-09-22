@@ -227,6 +227,38 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(response["status"], "failed")
         self.assertEqual(response["error"]["code"], ReasonCode.OBJECT_NOT_FOUND)
 
+    def test_stale_guard_response_requests_a_new_frame(self):
+        self.facade.handle_diagnostic("observe", task_contract=TASK)
+        decision = PolicyDecision(
+            proposal_id="proposal-stale",
+            status=PolicyStatus.STALE,
+            reason_code=ReasonCode.HIT_TEST_CHANGED,
+        )
+        self.runtime.store.put(decision, object_ref="decision-stale")
+        self.runtime.ledger.append("portable-task", "decision.created", "decision-stale")
+        with patch.object(self.runtime, "execute", return_value=decision):
+            response = self.facade.handle_diagnostic(
+                "execute", task_id="portable-task", proposal_id="proposal-stale"
+            )
+
+        self.assertEqual(response["status"], "running")
+        self.assertEqual(response["error"]["code"], ReasonCode.HIT_TEST_CHANGED)
+        self.assertEqual(response["error"]["required_action"], "capture-new-frame")
+        self.assertTrue(response["retry"]["retry"])
+
+    def test_diagnostics_use_attribution_event_refs_not_deserialized_objects(self):
+        self.runtime.ledger.append(
+            "portable-task", "attribution.recorded", "attribution-persisted"
+        )
+        with patch.object(
+            self.runtime,
+            "attributions",
+            side_effect=AttributeError("persisted attribution is a dict"),
+        ):
+            response = self.facade.handle_diagnostic("observe", task_contract=TASK)
+
+        self.assertEqual(response["attribution_refs"], ["attribution-persisted"])
+
     def test_run_exposes_the_bounded_automatic_transaction_loop(self):
         runtime = CoreOrchestrator(
             Compositor(),

@@ -265,12 +265,17 @@ class AutoUIFacade:
             value = self.runtime.execute(proposal_id.strip(), confirmed=confirmed)
             if isinstance(value, PolicyDecision):
                 ref = self._last_object_ref(resolved_task, "decision.created")
-                return self._diagnostic_response(
+                response = self._diagnostic_response(
                     operation,
                     _diagnostic_decision_status(value.status),
                     ref,
                     resolved_task,
                 )
+                error, retry = _decision_failure(value)
+                if error is not None:
+                    response["error"] = error
+                    response["retry"] = retry
+                return response
             response = self._diagnostic_response(
                 operation,
                 _diagnostic_receipt_status(value),
@@ -338,7 +343,9 @@ class AutoUIFacade:
         response["object"] = to_primitive(self.runtime.store.require(ref))
         if task_id is not None:
             response["attribution_refs"] = [
-                item.attribution_id for item in self.runtime.attributions(task_id)
+                event.object_ref
+                for event in self.runtime.ledger.events(task_id)
+                if event.event_type == "attribution.recorded"
             ]
         return response
 
@@ -402,6 +409,23 @@ def _execution_failure(
         {
             "code": receipt.error_code,
             "message": "The proposed action was not delivered",
+            **recovery,
+        },
+        recovery,
+    )
+
+
+def _decision_failure(
+    decision: PolicyDecision,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Expose stale guard recovery in the diagnostic response."""
+    if decision.status != PolicyStatus.STALE or decision.reason_code is None:
+        return None, None
+    recovery = _recovery_for(decision.reason_code)
+    return (
+        {
+            "code": decision.reason_code,
+            "message": "The proposed action guard is no longer valid",
             **recovery,
         },
         recovery,

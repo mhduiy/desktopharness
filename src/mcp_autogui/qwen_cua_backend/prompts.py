@@ -23,8 +23,11 @@ ACTION_DESCRIPTION = """
 * `middle_click`: Click the middle mouse button at a coordinate.
 * `double_click`: Double-click the left mouse button at a coordinate.
 * `triple_click`: Triple-click the left mouse button at a coordinate.
-* `scroll`: Scroll vertically.
-* `hscroll`: Scroll horizontally.
+* `scroll`: Scroll vertically at the current cursor position. First use
+  `mouse_move` to place the cursor over the intended visible scroll target in
+  the same ordered action sequence; do not emit a standalone scroll when the
+  pointer location has not already been established.
+* `hscroll`: Scroll horizontally, with the same `mouse_move` requirement.
 * `terminate`: Finish the task with success or failure.
 """
 

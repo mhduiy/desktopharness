@@ -89,7 +89,7 @@ class PyAutoGUIExecutor:
         elif action.type == ActionType.POINTER_DRAG:
             handled = self._drag_handler(proposal, point) if self._drag_handler else False
             if not handled:
-                self._module.dragTo(point.x, point.y, duration=params.get("duration", 0.5), button=params.get("button", "left"))
+                self._module.dragTo(point.x, point.y, duration=params.get("duration", 1.2), button=params.get("button", "left"))
         elif action.type == ActionType.POINTER_SCROLL:
             function = self._module.hscroll if params.get("axis") == "horizontal" else self._module.scroll
             function(params.get("clicks", 0))

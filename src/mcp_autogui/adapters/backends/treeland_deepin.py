@@ -187,7 +187,7 @@ def create_backend(
             input_module.dragTo(
                 point.x,
                 point.y,
-                duration=proposal.action.parameters.get("duration", 0.5),
+                duration=proposal.action.parameters.get("duration", 1.2),
                 button=proposal.action.parameters.get("button", "left"),
             )
             return True
