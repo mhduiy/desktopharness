@@ -92,8 +92,10 @@ def contract(*assertions, actions=None, intents=None, retries=1):
         task_id="task-1",
         goal="test",
         permissions=TaskPermissions(
-            frozenset(actions or {ActionType.POINTER_CLICK}),
-            frozenset(intents or {"navigation"}),
+            frozenset(
+                {ActionType.POINTER_CLICK} if actions is None else actions
+            ),
+            frozenset({"navigation"} if intents is None else intents),
         ),
         assertions=tuple(assertions),
         limits=TaskLimits(max_steps=5, max_retries=retries),
@@ -134,6 +136,14 @@ class FakeExecutor:
             new_id("execution"), proposal.proposal_id, ExecutionStatus.DELIVERED,
             proposal.action, now, now,
         )
+
+
+class FakePolicyProvider:
+    provider_id = "fixture-policy"
+
+    def independent_tags(self, proposal, task_contract):
+        del proposal, task_contract
+        return ()
 
 
 class CanonicalAdapterTests(unittest.TestCase):
@@ -212,22 +222,73 @@ class ActionGateTests(unittest.TestCase):
         self.assertEqual(decision.status, PolicyStatus.CONFIRM)
         self.assertEqual(decision.reason_code, ReasonCode.CONFIRMATION_REQUIRED)
 
-    def test_sequence_is_denied_when_a_later_action_lacks_permission(self):
+    def test_declared_actions_do_not_change_core_policy_decision(self):
         proposal = ActionProposal(
             proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
             action=Action(ActionType.POINTER_MOVE, Point(10, 10), "desktop-logical"),
-            actions=(
-                Action(ActionType.POINTER_MOVE, Point(10, 10), "desktop-logical"),
-                Action(ActionType.POINTER_CLICK, Point(10, 10), "desktop-logical"),
-            ),
         )
+        gate = ActionGate(descriptor(), lambda point, current: "desktop")
+        declarations = (
+            set(),
+            {ActionType.POINTER_CLICK},
+            {ActionType.POINTER_MOVE},
+            set(ActionType),
+        )
+
+        decisions = [
+            gate.decide(proposal, contract(actions=actions), snapshot())[0]
+            for actions in declarations
+        ]
+
+        self.assertEqual({decision.status for decision in decisions}, {PolicyStatus.ALLOW})
+        self.assertEqual({decision.reason_code for decision in decisions}, {ReasonCode.OK})
+
+    def test_done_is_internal_and_does_not_require_declared_action(self):
+        proposal = ActionProposal(
+            proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
+            action=Action(ActionType.DONE),
+        )
+
         decision, _, _ = ActionGate(
             descriptor(), lambda point, current: "desktop"
-        ).decide(
-            proposal, contract(actions={ActionType.POINTER_MOVE}), snapshot()
+        ).decide(proposal, contract(actions=set()), snapshot())
+
+        self.assertEqual(decision.status, PolicyStatus.ALLOW)
+        self.assertEqual(decision.reason_code, ReasonCode.OK)
+
+    def test_done_must_remain_the_last_action(self):
+        proposal = ActionProposal(
+            proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
+            action=Action(ActionType.DONE),
+            actions=(
+                Action(ActionType.DONE),
+                Action(ActionType.KEYBOARD_KEY, parameters={"key": "enter"}),
+            ),
         )
+
+        decision, _, _ = ActionGate(
+            descriptor(), lambda point, current: "desktop"
+        ).decide(proposal, contract(actions=set()), snapshot())
+
+        self.assertEqual(decision.status, PolicyStatus.INVALID)
+        self.assertEqual(decision.reason_code, ReasonCode.MODEL_PROTOCOL_INVALID)
+
+    def test_independent_action_restriction_tag_is_denied(self):
+        proposal = ActionProposal(
+            proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
+            action=Action(ActionType.KEYBOARD_TEXT, parameters={"text": "blocked"}),
+        )
+        restriction = SemanticTag(
+            "action_restricted", "fixture-policy", None, EvidenceConfidence.DETERMINISTIC
+        )
+
+        decision, _, _ = ActionGate(
+            descriptor(), lambda point, current: "desktop"
+        ).decide(proposal, contract(actions=set(), intents=set()), snapshot(), [restriction])
+
         self.assertEqual(decision.status, PolicyStatus.DENY)
-        self.assertEqual(decision.reason_code, ReasonCode.MECHANICAL_PERMISSION_DENIED)
+        self.assertEqual(decision.reason_code, ReasonCode.SEMANTIC_POLICY_DENIED)
+
     def test_unrelated_snapshot_change_does_not_invalidate_guard(self):
         first = snapshot()
         gate = ActionGate(descriptor(), lambda point, snap: snap.windows[0].window_id)
@@ -349,6 +410,14 @@ class EvidenceAndStateTests(unittest.TestCase):
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_policy_provider_ids_must_be_unique(self):
+        with self.assertRaisesRegex(ValueError, "policy provider IDs must be unique"):
+            CoreOrchestrator(
+                FakeCompositor([snapshot()]),
+                FakeExecutor(),
+                policy_providers=(FakePolicyProvider(), FakePolicyProvider()),
+            )
+
     def test_action_sequence_executes_in_order_and_records_one_aggregate_receipt(self):
         class RecordingExecutor(FakeExecutor):
             def __init__(self):

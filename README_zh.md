@@ -24,6 +24,10 @@ v2 显式调用流程为：
 `gui_run(operation="trace", object_ref=...)` 展开对象。默认策略在缺少独立语义证据时要求确认，模型给出的 `semantic_intent` 只作为 claim。
 `ExecutionReceipt.status=delivered` 只表示输入已注入，不表示应用响应或任务完成。
 
+`permissions.actions` 仅为协议兼容字段，不再是授权边界。Core 校验 Proposal
+结构、坐标、语义策略和 Guard，调用方无须预判模型会使用鼠标、键盘还是快捷键。
+确需限制原始动作的部署可显式启用可选 `action_restriction` policy provider。
+
 参见 [v2 实现与扩展指南](docs/treeland-autoui-mcp-v2-implementation.md)
 和 [v2 设计](docs/treeland-autoui-mcp-v2-design.md)。
 
@@ -45,7 +49,7 @@ export CUA_MODEL_TLS_VERIFY=1                 # 仅自签名测试端点才显�
 后端通过 task contract 寻址，每轮只产出一个 canonical action：
 
 1. `gui_run(operation="run", task_contract={"task_id": ..., "goal": ...,
-   "permissions": {...}, "limits": {"max_steps": 5, "max_retries": 2},
+   "limits": {"max_steps": 5, "max_retries": 2},
    "policy_overrides": {"unknown": "allow", "content_edit": "allow"}})`
    执行有界的单动作事务循环：
    observe -> propose（Qwen）-> decide -> guard 重检 -> execute ->
@@ -56,6 +60,17 @@ export CUA_MODEL_TLS_VERIFY=1                 # 仅自签名测试端点才显�
    存储对象，例如模型输出（`debug_ref`）、执行回执或断言结果。
 3. `gui_run(operation="reset", task_id=...)` 会重置运行时任务和内嵌
    Qwen session，用于开始新任务。
+
+原始动作限制默认关闭，只在配置中显式启用：
+
+```json
+"policy_providers": {
+  "action_restriction": {
+    "enabled": true,
+    "denied_actions": ["keyboard.text", "keyboard.shortcut"]
+  }
+}
+```
 
 窗口级完成条件通过 task contract 的 assertions 声明，例如
 `assertions: [{"assertion_id": "application-active", "path":

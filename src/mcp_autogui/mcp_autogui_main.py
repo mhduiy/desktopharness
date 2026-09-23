@@ -13,6 +13,7 @@ from .facade import AutoUIFacade
 from .provider_registry import (
     ProviderBuildContext,
     create_evidence_providers,
+    create_policy_providers,
     create_proposal_provider,
 )
 from .runtime_description import RuntimeDescription
@@ -23,6 +24,7 @@ def mcp_autogui_main(
     *,
     desktop_backend_kind: str = DEFAULT_DESKTOP_BACKEND,
     proposal_provider_config: dict[str, object] | None = None,
+    policy_provider_config: dict[str, object] | None = None,
     evidence_provider_config: dict[str, object] | None = None,
     audit_config: dict[str, object] | None = None,
     effective_config: dict[str, object] | None = None,
@@ -46,6 +48,10 @@ def mcp_autogui_main(
         evidence_provider_config or {"compositor_window": {"enabled": True}},
         ProviderBuildContext(store, desktop_backend.capture_observation),
     )
+    policy_providers = (
+        *desktop_backend.policy_providers,
+        *create_policy_providers(policy_provider_config or {}),
+    )
 
     def close_runtime() -> None:
         worker_pool.shutdown(wait=True, cancel_futures=True)
@@ -60,7 +66,7 @@ def mcp_autogui_main(
         proposal_provider=proposal_runtime.provider,
         frame_provider=desktop_backend.frame_provider,
         evidence_providers=evidence_providers,
-        policy_providers=desktop_backend.policy_providers,
+        policy_providers=policy_providers,
         store=store,
         ledger=ledger,
     )
@@ -69,7 +75,7 @@ def mcp_autogui_main(
         executor=desktop_backend.executor,
         proposal_provider=proposal_runtime.provider,
         frame_provider=desktop_backend.frame_provider,
-        policy_providers=desktop_backend.policy_providers,
+        policy_providers=policy_providers,
         evidence_providers=evidence_providers,
         policy_profiles=DEFAULT_POLICY_PROFILES,
         context_strategies=ContextBuilder.STRATEGIES,

@@ -30,6 +30,13 @@ independent semantic evidence; a model's `semantic_intent` is only a claim. An
 execution receipt with `status=delivered` confirms input injection, not
 application or task success.
 
+`permissions.actions` remains accepted for protocol compatibility but is not
+an authorization boundary. The Core validates Proposal structure, coordinates,
+semantic policy, and guards without requiring callers to predict whether the
+model will use pointer, keyboard, or shortcut actions. Deployments that need a
+raw-action ceiling can explicitly enable the optional `action_restriction`
+policy provider.
+
 See the [v2 implementation and extension guide](docs/treeland-autoui-mcp-v2-implementation.md)
 and the [v2 design](docs/treeland-autoui-mcp-v2-design.md).
 
@@ -57,7 +64,7 @@ addressed by the task contract, and each round produces one canonical Proposal
 containing a non-empty ordered action sequence:
 
 1. `gui_run(operation="run", task_contract={"task_id": ..., "goal": ...,
-   "permissions": {...}, "limits": {"max_steps": 5, "max_retries": 2},
+   "limits": {"max_steps": 5, "max_retries": 2},
    "policy_overrides": {"unknown": "allow", "content_edit": "allow"}})`
    executes bounded Proposal transactions (each Proposal may contain an ordered action sequence):
    observe -> propose (Qwen) -> decide -> guard recheck -> execute ->
@@ -69,6 +76,17 @@ containing a non-empty ordered action sequence:
    lifecycle operations on `gui_run`.
 3. `gui_run(operation="reset", task_id=...)` resets the runtime task and the
    embedded Qwen session for a new task.
+
+Raw-action restriction is opt-in and disabled in the default configuration:
+
+```json
+"policy_providers": {
+  "action_restriction": {
+    "enabled": true,
+    "denied_actions": ["keyboard.text", "keyboard.shortcut"]
+  }
+}
+```
 
 Window-level completion conditions are declared as task-contract assertions,
 for example `assertions: [{"assertion_id": "application-active", "path":

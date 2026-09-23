@@ -53,6 +53,7 @@ class EntrypointTests(unittest.TestCase):
                 (
                     kwargs["desktop_backend_kind"],
                     kwargs["proposal_provider_config"],
+                    kwargs["policy_provider_config"],
                     kwargs["evidence_provider_config"],
                     kwargs["audit_config"],
                     kwargs["effective_config"],
@@ -75,11 +76,13 @@ class EntrypointTests(unittest.TestCase):
                     {"kind": "qwen-cua", "mode": "embedded"},
                     {},
                     {},
+                    {},
                     {
                         "config_path": str(path),
                         "transport": {"mode": "streamable-http", "host": "127.0.0.1", "port": 8651},
                         "desktop_backend": "treeland-deepin",
                         "proposal_provider": {"kind": "qwen-cua", "mode": "embedded"},
+                        "policy_providers": {},
                         "evidence_providers": {},
                         "audit": {},
                     },

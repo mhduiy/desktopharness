@@ -26,6 +26,7 @@ def config_payload(*, backend="treeland-deepin"):
             "timeout_seconds": 120,
             "tls_verify": True,
         },
+        "policy_providers": {},
         "evidence_providers": {"omniparser": {"enabled": False, "endpoint": ""}},
         "audit": {"directory": "/tmp/autoui-audit", "retention_days": 3, "max_gib": 16},
     }
@@ -47,6 +48,7 @@ class ServerConfigTests(unittest.TestCase):
         self.assertEqual(config.transport_mode, "streamable-http")
         self.assertEqual(config.transport_port, 8651)
         self.assertEqual(config.proposal_provider["model"], "qwen3_rl")
+        self.assertEqual(config.policy_providers, {})
         self.assertFalse(config.evidence_providers["omniparser"]["enabled"])
         self.assertEqual(config.audit["retention_days"], 3)
 
@@ -78,6 +80,13 @@ class ServerConfigTests(unittest.TestCase):
         payload = config_payload()
         payload["proposal_provider"]["temperature"] = 1.5
         with self.assertRaisesRegex(ValueError, "temperature must be a number from 0 to 1"):
+            load_server_config(self.write_config(payload))
+
+        payload = config_payload()
+        payload["policy_providers"] = {
+            "action_restriction": {"enabled": True, "denied_actions": ["not.an.action"]}
+        }
+        with self.assertRaisesRegex(ValueError, "contains an unknown action"):
             load_server_config(self.write_config(payload))
 
     def test_effective_config_is_non_secret_and_legacy_environment_is_visible(self):

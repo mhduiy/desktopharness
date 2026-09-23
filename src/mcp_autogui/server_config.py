@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND, available_desktop_backends
-from .provider_registry import validate_evidence_provider, validate_proposal_provider
+from .provider_registry import (
+    validate_evidence_provider,
+    validate_policy_provider,
+    validate_proposal_provider,
+)
 
 
 @dataclass(frozen=True)
@@ -20,6 +24,7 @@ class ServerConfig:
     transport_port: int
     desktop_backend: str
     proposal_provider: dict[str, Any]
+    policy_providers: dict[str, Any]
     evidence_providers: dict[str, Any]
     audit: dict[str, Any]
 
@@ -36,6 +41,7 @@ class ServerConfig:
             },
             "desktop_backend": self.desktop_backend,
             "proposal_provider": provider,
+            "policy_providers": self.policy_providers,
             "evidence_providers": self.evidence_providers,
             "audit": self.audit,
         }
@@ -93,7 +99,10 @@ def load_server_config(path: str | Path) -> ServerConfig:
         raise ValueError("MCP config root must be an object")
     _only_keys(
         raw,
-        {"schema_version", "transport", "desktop_backend", "proposal_provider", "evidence_providers", "audit"},
+        {
+            "schema_version", "transport", "desktop_backend", "proposal_provider",
+            "policy_providers", "evidence_providers", "audit",
+        },
         "MCP config",
     )
     if raw.get("schema_version") != 1:
@@ -117,8 +126,13 @@ def load_server_config(path: str | Path) -> ServerConfig:
     proposal_provider = _object(raw, "proposal_provider")
     validate_proposal_provider(proposal_provider, "proposal_provider")
 
+    policy_providers = _object(raw, "policy_providers", default={})
     evidence_providers = _object(raw, "evidence_providers", default={})
     audit = _object(raw, "audit", default={})
+    for provider_id, provider_config in policy_providers.items():
+        if not isinstance(provider_config, dict):
+            raise ValueError(f"policy_providers.{provider_id} must be an object")
+        validate_policy_provider(provider_id, provider_config, f"policy_providers.{provider_id}")
     for provider_id, provider_config in evidence_providers.items():
         if not isinstance(provider_config, dict):
             raise ValueError(f"evidence_providers.{provider_id} must be an object")
@@ -134,6 +148,7 @@ def load_server_config(path: str | Path) -> ServerConfig:
         transport_port=port,
         desktop_backend=backend_id,
         proposal_provider=proposal_provider,
+        policy_providers=policy_providers,
         evidence_providers=evidence_providers,
         audit=audit,
     )

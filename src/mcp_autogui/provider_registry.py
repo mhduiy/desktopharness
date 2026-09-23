@@ -1,4 +1,4 @@
-"""Composition-root registry for proposal and evidence adapters."""
+"""Composition-root registry for proposal, evidence, and policy adapters."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 
 from .core.store import ObjectStore
 from .ports.evidence import EvidenceProvider
+from .ports.policy import PolicyProvider
 from .ports.proposal import ProposalProvider
 
 
@@ -27,9 +28,12 @@ ProposalValidator = Callable[[dict[str, Any], str], None]
 ProposalFactory = Callable[[dict[str, Any], ObjectStore], ProposalProviderRuntime]
 EvidenceValidator = Callable[[dict[str, Any], str], None]
 EvidenceFactory = Callable[[dict[str, Any], ProviderBuildContext], EvidenceProvider | None]
+PolicyValidator = Callable[[dict[str, Any], str], None]
+PolicyFactory = Callable[[dict[str, Any]], PolicyProvider | None]
 
 _PROPOSAL_PROVIDERS: dict[str, tuple[ProposalValidator, ProposalFactory]] = {}
 _EVIDENCE_PROVIDERS: dict[str, tuple[EvidenceValidator, EvidenceFactory]] = {}
+_POLICY_PROVIDERS: dict[str, tuple[PolicyValidator, PolicyFactory]] = {}
 
 
 def register_proposal_provider(kind: str, validator: ProposalValidator, factory: ProposalFactory) -> None:
@@ -40,12 +44,20 @@ def register_evidence_provider(kind: str, validator: EvidenceValidator, factory:
     _register(_EVIDENCE_PROVIDERS, kind, validator, factory, "evidence provider")
 
 
+def register_policy_provider(kind: str, validator: PolicyValidator, factory: PolicyFactory) -> None:
+    _register(_POLICY_PROVIDERS, kind, validator, factory, "policy provider")
+
+
 def available_proposal_providers() -> tuple[str, ...]:
     return tuple(sorted(_PROPOSAL_PROVIDERS))
 
 
 def available_evidence_providers() -> tuple[str, ...]:
     return tuple(sorted(_EVIDENCE_PROVIDERS))
+
+
+def available_policy_providers() -> tuple[str, ...]:
+    return tuple(sorted(_POLICY_PROVIDERS))
 
 
 def validate_proposal_provider(config: dict[str, Any], location: str) -> None:
@@ -56,6 +68,11 @@ def validate_proposal_provider(config: dict[str, Any], location: str) -> None:
 
 def validate_evidence_provider(kind: str, config: dict[str, Any], location: str) -> None:
     validator, _ = _evidence_entry(kind, location)
+    validator(config, location)
+
+
+def validate_policy_provider(kind: str, config: dict[str, Any], location: str) -> None:
+    validator, _ = _policy_entry(kind, location)
     validator(config, location)
 
 
@@ -77,6 +94,20 @@ def create_evidence_providers(
         validator, factory = _evidence_entry(kind, location)
         validator(raw_config, location)
         provider = factory(raw_config, context)
+        if provider is not None:
+            providers.append(provider)
+    return tuple(providers)
+
+
+def create_policy_providers(configs: dict[str, Any]) -> tuple[PolicyProvider, ...]:
+    providers: list[PolicyProvider] = []
+    for kind, raw_config in configs.items():
+        if not isinstance(raw_config, dict):
+            raise ValueError(f"policy_providers.{kind} must be an object")
+        location = f"policy_providers.{kind}"
+        validator, factory = _policy_entry(kind, location)
+        validator(raw_config, location)
+        provider = factory(raw_config)
         if provider is not None:
             providers.append(provider)
     return tuple(providers)
@@ -110,6 +141,14 @@ def _evidence_entry(kind: str, location: str) -> tuple[EvidenceValidator, Eviden
     entry = _EVIDENCE_PROVIDERS.get(kind)
     if entry is None:
         choices = ", ".join(available_evidence_providers())
+        raise ValueError(f"{location} must be one of: {choices}")
+    return entry
+
+
+def _policy_entry(kind: str, location: str) -> tuple[PolicyValidator, PolicyFactory]:
+    entry = _POLICY_PROVIDERS.get(kind)
+    if entry is None:
+        choices = ", ".join(available_policy_providers())
         raise ValueError(f"{location} must be one of: {choices}")
     return entry
 

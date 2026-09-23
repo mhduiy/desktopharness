@@ -23,6 +23,7 @@ DEFAULT_SEMANTIC_POLICY = {
     "external_side_effect": "confirm",
     "destructive": "deny",
     "authentication": "deny",
+    "action_restricted": "deny",
     "unknown": "confirm",
 }
 DEFAULT_POLICY_PROFILES = {"desktop-safe-default": DEFAULT_SEMANTIC_POLICY}
@@ -80,7 +81,7 @@ class ActionGate:
     ) -> tuple[PolicyDecision, tuple[ProposalGuard, ...], SemanticResolution]:
         """Decide one model proposal and return its ordered action guards."""
         resolution = self.resolve_semantics(proposal, independent_tags)
-        invalid = self._mechanical_check(proposal, contract, snapshot)
+        invalid = self._validate_proposal(proposal, snapshot)
         if invalid is not None:
             return self._decision(proposal, invalid[0], invalid[1], resolution), (), resolution
 
@@ -184,8 +185,8 @@ class ActionGate:
             tags=tuple(tags),
         )
 
-    def _mechanical_check(
-        self, proposal: ActionProposal, contract: TaskContract, snapshot: CanonicalSnapshot
+    def _validate_proposal(
+        self, proposal: ActionProposal, snapshot: CanonicalSnapshot
     ) -> tuple[PolicyStatus, ReasonCode] | None:
         done_indexes = [
             index
@@ -195,8 +196,6 @@ class ActionGate:
         if done_indexes and done_indexes != [len(proposal.action_sequence) - 1]:
             return PolicyStatus.INVALID, ReasonCode.MODEL_PROTOCOL_INVALID
         for action in proposal.action_sequence:
-            if action.type not in contract.permissions.actions:
-                return PolicyStatus.DENY, ReasonCode.MECHANICAL_PERMISSION_DENIED
             if action.coordinate is not None:
                 if action.coordinate_space != snapshot.coordinate_space.id:
                     return PolicyStatus.INVALID, ReasonCode.INVALID_COORDINATE_SPACE

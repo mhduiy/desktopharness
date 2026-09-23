@@ -8,12 +8,14 @@
 
 ## 当前状态
 
-v2.1 的代码与文档收敛已经完成。发布前只剩 P5：在真实 Treeland/Deepin 会话中执行验收。
-环境未验收不等于模型、策略或执行失败，必须单独记录。
+v2.1 的既有事实链与扩展边界已经收敛。P20 已移除 Core 中按任务原始动作白名单产生的机械拒绝，
+并把特殊部署需要的动作限制移至可选策略扩展。发布前剩余 P5 真实 Treeland/Deepin 验收；环境未验收
+不等于模型、策略或执行失败，必须单独记录。
 
 | 范围 | 状态 | 结果 |
 | --- | --- | --- |
 | P0–P4、P6–P19 | 完成 | 核心事实链、扩展边界、公开协议、命名和文档已经收敛 |
+| P20 | 完成 | 原始动作不再作为 TaskContract 硬授权；限制能力移至可选 PolicyProvider |
 | P5 | 待完成 | 真实 Treeland/Deepin 环境回归 |
 
 已实现的稳定边界：
@@ -23,6 +25,53 @@ v2.1 的代码与文档收敛已经完成。发布前只剩 P5：在真实 Treel
 - `TaskState` 是公开任务状态的唯一来源，协议错误单独归并为 `failed`。
 - `gui_run` 只暴露任务生命周期；逐阶段事实和 Attribution 只通过 `gui_diagnostic` 查看。
 - Core 不依赖具体合成器、模型、证据实现或桌面平台工具。
+
+## P20：机械授权边界收敛（已实现）
+
+### 目标行为
+
+- 用户给出目标后，模型可在执行器支持的 canonical actions 中选择实现方式；TaskContract 没有预先列出
+  某个动作，不得单独导致拒绝。
+- Core 继续验证 Proposal 协议、`done` 位置、坐标空间、桌面边界和 ProposalGuard。
+- 语义策略、确认、高风险拒绝和断言验证保持不变；P20 不等于关闭策略或绕过 Guard。
+- 需要只读、鼠标专用或多租户隔离的部署，通过可选 `PolicyProvider` 检查 Proposal action sequence，
+  输出独立策略标签，再由现有 policy profile 决定 allow、confirm 或 deny。
+
+### 实现
+
+1. `core/action_gate.py` 的资格检查只保留 `done` 顺序、coordinate space 和 desktop bounds 校验；
+   已删除 `action.type not in contract.permissions.actions` 拒绝分支。
+2. `TaskPermissions.actions` 与输入字段 `permissions.actions` 在当前协议版本中保留解析和序列化兼容，
+   但 Core 不再把它作为授权事实。不得引入 `explicit_user_authorization`、全局 allow 开关或新的授权布尔值。
+3. `MECHANICAL_PERMISSION_DENIED` 暂时保留为可读取的历史 ReasonCode，避免破坏持久审计；新决策路径不再产生它。
+4. 若执行器不支持某个动作，由 backend/executor 返回稳定的 capability/execution 错误；不要重新借用
+   TaskContract 动作列表模拟运行时能力。
+5. `action_restriction` 是独立 `PolicyProvider` 与 JSON 配置项。Provider 只提供确定性的
+   `action_restricted` 策略标签，不执行动作；默认配置不启用。
+
+### 兼容与迁移
+
+- 现有调用方可以继续发送缺失、空或部分 `permissions.actions`；这些取值不再改变 Core 决策。
+- `gui_run`、`gui_diagnostic`、TaskState、Proposal、Decision、Receipt 与审计结构保持不变。
+- 不在 P20 删除字段、ReasonCode 或重写历史审计；删除属于后续协议大版本工作。
+- schema revision 已从 `2.1-p5` 递增到 `2.1-p6`。
+
+### 自动回归
+
+- 同一 Proposal 在 `permissions.actions` 缺失、空、部分和完整四种 contract 下，不得出现
+  `MECHANICAL_PERMISSION_DENIED`，其语义策略与 Guard 结果应一致。
+- `done` 无须出现在任何调用方动作集合中，且只能位于动作序列末尾。
+- 坐标空间错误、桌面越界、目标变化和遮挡仍分别产生现有稳定结果，并且零输入注入。
+- 默认高风险语义策略仍能 confirm/deny；模型 `claimed_intent` 仍不能降低独立证据支持的策略级别。
+- 可选限制 PolicyProvider 单独覆盖：默认未启用时不影响自动化；启用时只拒绝其配置的 action types。
+
+真实桌面手工回归保留“终端运行 `htop`、关闭终端”：模型无论选择键盘、快捷键还是点击，都不能因原始动作
+未枚举而失败；执行送达与任务完成仍分别由 Receipt 和 Assertion 证明。该项属于 P5，不冒充自动测试结果。
+
+### 完成条件
+
+自动回归已覆盖默认路径和限制 provider；README 示例不再要求调用方预测原始动作；手工验收矩阵已加入
+V2-16 与 V2-17。实现没有用“默认填入所有 actions”替代删除硬拒绝。
 
 ## 运行与验证
 
@@ -105,7 +154,7 @@ Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路�
   增长一次。失败序列保留部分执行事实，但不会进入成功评估。
 - Qwen parser 接受同一响应中的一个或多个 `tool_call`，保持模型顺序；prompt 允许模型按自身粒度返回
   最小动作序列，但禁止把依赖前一步界面变化的动作预先打包。其他 provider 只需返回相同领域对象。
-- schema revision 为 `2.1-p5`；序列权限、语义合并、Guard、短路执行、原子回执和多 tool-call 解析均有
+- schema revision 为 `2.1-p6`；序列结构、语义合并、Guard、短路执行、原子回执和多 tool-call 解析均有
   自动回归覆盖。
 - **新证据源**：实现 `ports/evidence.py`，声明标准 fact path，并覆盖 unknown、conflict 和过期证据。
 
@@ -118,7 +167,7 @@ Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路�
 
 1. 安装服务证书到系统信任库，通过 HTTPS 调用实际 MCP 入口。
 2. 运行 `autoui-smoke`，确认 tree、provider 和 `gui_run(describe)` 均可用。
-3. 按 `manual-test-guide.md` 执行 V2-01～V2-15，并保存必要 trace 与 artifact 引用。
+3. 按 `manual-test-guide.md` 执行 V2-01～V2-17，并保存必要 trace 与 artifact 引用。
 4. 将证书、代理、桌面会话或外部服务问题记为环境阻塞；领域失败按 ReasonCode 与 Attribution 归因。
 
 ## 文档维护

@@ -59,7 +59,9 @@ ExecutionReceipt、Evidence、AssertionResult、TaskState、attribution 与恢�
 | V2-12 | Reset 审计保留 | 对已有事件的 task 调用 `reset` | 既有事件保留，末尾追加 `task.reset`，不重写删除历史。 |
 | V2-13 | 审计保留清理 | 构造含多个 artifact 的过期对象或超容量归档 | 被清理对象及其全部 artifact 同时移除；不留下断链或孤儿。 |
 | V2-14 | 便携归档 | 在 TUI 中导出 `.tar.gz`，复制到另一台机器后打开 | `manifest.json` 校验所有成员；完整归档可浏览和导出 artifact；校验失败必须拒绝打开。 |
-| V2-15 | 多动作 Proposal | 让 Qwen 在一次响应中返回安全的 `pointer.move` + `pointer.scroll`，权限同时包含两者 | 只产生一个 Proposal/Decision/Receipt；动作按序执行，结束后观察一次；trace 含逐动作回执。若第二步失败，后续动作不得执行。 |
+| V2-15 | 多动作 Proposal | 让 Qwen 在一次响应中返回安全的 `pointer.move` + `pointer.scroll` | 只产生一个 Proposal/Decision/Receipt；动作按序执行，结束后观察一次；trace 含逐动作回执。若第二步失败，后续动作不得执行。 |
+| V2-16 | 默认动作自由 | 对同一 Proposal 分别使用缺失、空、部分和完整 `permissions.actions` | 四次决策的语义策略与 Guard 结果一致，均不产生 `MECHANICAL_PERMISSION_DENIED`。 |
+| V2-17 | 可选动作限制 | 启用 `action_restriction` 并禁止一个 Proposal 使用的 action type | 默认配置不受影响；启用配置后由独立 `action_restricted` 策略标签拒绝，且没有输入注入。 |
 
 ## 4. 桌面适配器用例
 

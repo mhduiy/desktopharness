@@ -177,6 +177,23 @@ class ToolRegistrationTests(unittest.TestCase):
         self.assertEqual(response["status"], "ok")
         self.assertEqual(response["object"]["providers"]["evidence"], [])
 
+    def test_json_policy_configuration_registers_action_restriction(self):
+        mcp = self.compose()
+        with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):
+            mcp_autogui_main(
+                mcp,
+                policy_provider_config={
+                    "action_restriction": {
+                        "enabled": True,
+                        "denied_actions": ["keyboard.text"],
+                    }
+                },
+            )
+
+        response = asyncio.run(mcp.functions["gui_diagnostic"]("describe"))
+        self.assertEqual(response["status"], "ok")
+        self.assertIn("action-restriction", response["object"]["providers"]["policy"])
+
     def test_json_omniparser_configuration_requires_an_explicit_endpoint(self):
         with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):
             with self.assertRaisesRegex(ValueError, "endpoint is required"):

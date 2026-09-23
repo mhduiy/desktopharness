@@ -72,6 +72,9 @@ class CoreOrchestrator:
         provider_ids = [provider.provider_id for provider in self.evidence_providers]
         if len(provider_ids) != len(set(provider_ids)):
             raise ValueError("evidence provider IDs must be unique")
+        policy_provider_ids = [provider.provider_id for provider in self.policy_providers]
+        if len(policy_provider_ids) != len(set(policy_provider_ids)):
+            raise ValueError("policy provider IDs must be unique")
         for provider in self.evidence_providers:
             for path in provider.fact_paths:
                 require_standard_fact_path(path)

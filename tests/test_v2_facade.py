@@ -146,7 +146,7 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(public["status"], "completed")
         self.assertNotIn("object", public)
         self.assertEqual(response["protocol_version"], 2)
-        self.assertEqual(response["object"]["schema_revision"], "2.1-p5")
+        self.assertEqual(response["object"]["schema_revision"], "2.1-p6")
         self.assertEqual(response["object"]["proposal_model"]["actions"], "ordered-sequence")
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
         self.assertIn("pointer.click", response["object"]["actions"])

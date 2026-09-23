@@ -40,7 +40,7 @@ class RuntimeDescription:
         description = {
             "protocol_version": 2,
             "schema_version": "1",
-            "schema_revision": "2.1-p5",
+            "schema_revision": "2.1-p6",
             "adapter": to_primitive(descriptor),
             "capabilities": {
                 "pointer": executor is not None,
