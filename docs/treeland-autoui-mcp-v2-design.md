@@ -1,213 +1,190 @@
-# AutoUI MCP v2.1 架构
+# AutoUI MCP v2.2 架构
 
-本文定义稳定架构，不记录实施进度、测试步骤或故障样例。
+本文定义 v2.2 的目标架构。v2.1 仍是当前代码实现；具体迁移范围和完成状态见 [`treeland-autoui-mcp-v2-implementation.md`](treeland-autoui-mcp-v2-implementation.md)。
 
-- 实施状态：[`treeland-autoui-mcp-v2-implementation.md`](treeland-autoui-mcp-v2-implementation.md)
-- 手工验收：[`manual-test-guide.md`](manual-test-guide.md)
+## 核心思想：简化、紧凑、功能完整
 
-## 核心思想
+延续“小核心、大扩展、克制通信”：Core 负责通用执行编排和状态，平台、模型、输入和证据实现通过 ports/adapters 接入；默认响应只传递必要事实。减少重复判断、包装和历史分支，保留已有操作能力及结果验证。
 
-### 小核心、大扩展、克制通信
+本次目标是整体架构简化，安全审批只是其中一部分。保留实际能力和正确性要求，不承诺保留承载它们的现有类、对象链或接口。每一层都应回答“删除后会失去什么实际能力”；只有透传、重复表达或假设需求的层应删除或合并。文件数和代码行数仅供参考，不能代替职责、状态和调用路径的减少。
 
-这是本架构的首要哲学。
+范围包括执行链、运行态、记录与诊断、协议兼容、配置和依赖。不会为简化新增两种运行模式、通用策略框架或另一套事务框架。平台、模型、执行器和证据边界因现有功能需要而保留；其他抽象须有当前调用方和独立责任支撑。
 
-- **小核心**：Core 只保留跨桌面都成立的事务语义、策略裁决、状态归约和领域对象；不理解具体窗口系统、模型、输入库或应用启动方式。
-- **大扩展**：合成器、桌面能力、模型、执行方式和证据来源全部通过 ports/adapters 扩展；新增能力应增加 adapter，而不是给 Core 增加平台分支。
-- **克制通信**：模块之间只传递完成本层职责所需的最小事实。默认调用方只看 TaskState 和引用；原始树、截图、模型输出、Guard 与 Attribution 只在显式诊断时展开。
-- **意图优先**：用户目标和可验证约束是任务边界；点击、键盘、快捷键等原始动作是模型在运行时选择的实现细节，不能仅因未被任务预先枚举而拒绝。
+v2.2 保留桌面自动化必须具备的事实链，却不再把每一个模型动作送进默认的权限审查。单用户桌面的调用者已经通过提交任务表达了执行意图；系统应负责**正确执行、可验证完成、可追溯诊断**，而不要求调用者预测动作类型或为普通输入反复确认。
 
-这不是“模型直接操控桌面”的架构，而是把一次 GUI 操作拆成一串不能互相冒充的事实：
+默认主链只有五步：
 
 ```text
-模型说“应该做什么”       → Proposal
-控制器说“能否做”         → PolicyDecision
-执行器说“实际做了什么”   → ExecutionReceipt
-观察系统说“看到了什么”   → EvidenceRecord
-断言系统说“任务是否完成” → AssertionResult / TaskState
+任务目标 → 观察 → 提案 → 校验并执行 → 验证结果
 ```
-
-每一层只回答一个问题，并由对应责任方产生唯一权威对象。这样可以同时做到：模型不拥有执行权、
-执行成功不被误判为业务成功、证据不足不被伪装成失败、诊断信息不污染日常调用。
-
-### 能力、环境与策略三条边界
-
-Core 必须区分三种不同问题，不能用一个动作白名单同时回答：
-
-| 边界 | 回答的问题 | 权威来源 | 典型结果 |
-| --- | --- | --- | --- |
-| 执行能力 | 当前 executor/backend 是否实现该 canonical action | runtime/backend descriptor 与执行事实 | unsupported / failed |
-| 环境 Guard | Proposal 仍指向同一窗口、坐标与桌面状态吗 | Snapshot、hit-test、ProposalGuard | stale / invalid |
-| 语义策略 | Proposal 是否仍在部署策略允许的意图范围内 | PolicyProvider、独立语义证据、policy profile | allow / confirm / deny |
-
-`TaskContract.permissions.actions` 不属于上述任何权威事实：它既不能证明执行器能力，也不能证明用户意图，
-还要求调用方提前预测模型会选择点击、快捷键还是键盘输入。Core 因此不得仅以动作未出现在该集合中为由
-产生 `MECHANICAL_PERMISSION_DENIED`。该字段在兼容期只作为调用方声明或诊断元数据保留，之后可在协议大版本中删除。
-
-需要原始动作隔离的多租户、只读 worker 或不可信代理部署，应通过可选 `PolicyProvider` 检查 Proposal，
-产生独立策略标签并由 policy profile 裁决。默认单用户桌面路径不加载这类限制。这样限制能力可以扩展，
-但不会扩大 Core，也不会让模型对同一目标选择不同操作方式时随机失败。
-
-### 模型提案序列
-
-一次模型输出对应一个 Proposal，可包含一个或多个有序原子动作；模型的输出粒度不应成为
-协议限制。审计、策略、确认与归因均以 Proposal 为单位，原子动作的 Guard 和 Receipt 是该
-Proposal 的执行明细。序列全部完成后统一观察与评估；任一 Guard 拒绝、环境失效或执行失败
-立即停止剩余动作。该模型同时兼容单个 `drag` 与“移动、按下、移动、松开”等 CUA 输出。
-
-## 目标
-
-将 GUI 自动化表示为可验证、可审计的事实链。Core 可跨合成器和桌面后端复用；模型只能提案，
-策略只能裁决，执行器只能执行，证据只能证明。
-
-## 边界
 
 ```text
-MCP facade → Core → ports → adapters / desktop backend
+MCP facade → Orchestrator → ProposalProvider
+                  │                 │
+                  │                 ▼
+                  ├→ ProposalValidator → ActionExecutor
+                  │                         │
+                  └← AssertionEvaluator ← EvidenceProvider
 ```
 
-Core 不依赖 Treeland、Deepin、Qwen、PyAutoGUI、`dde-am` 或 MCP transport。adapter 把外部数据转换为
-canonical objects；desktop backend 在单一 executor 内路由输入、快捷键和应用启动。
+每一层只保留一个责任：
 
-## 核心通信协议
+| 层 | 唯一责任 | 不能做什么 |
+| --- | --- | --- |
+| ProposalProvider | 根据当前观察提出一个有序动作提案 | 执行或宣布完成 |
+| ProposalValidator | 确认动作格式、能力、坐标和目标仍有效 | 判断用户意图是否“允许” |
+| ActionExecutor | 注入一个已校验的动作并给出回执 | 判断任务是否完成 |
+| Evidence / Assertion | 采集事实并判断任务断言 | 执行、授权或改变策略 |
+| Orchestrator | 编排有界循环和归约任务状态 | 重复实现各层规则 |
 
-Core 模块之间只交换下列领域对象与 port 返回值；具体字段填充、缓存和序列化细节以源码为准。
+## 连接边界
+
+当前 v2.1 没有 MCP 连接鉴权，示例也监听 `0.0.0.0`；因此不能称为“保留现有连接鉴权”。v2.2 的默认 `transport.host` 必须为 `127.0.0.1` 或 `::1`。若需要从本机以外访问，只允许两种明确部署：
+
+1. 服务仍绑定 loopback，由同机、受 TLS 和鉴权保护的可信反向代理对外提供连接；代理是唯一外部入口。
+2. 服务绑定非 loopback 时，必须配置并启用正式的 bearer-token 鉴权；无 token、错误 token 和缺少 token 的请求在到达 facade 前拒绝。
+
+目标配置使用 `transport.auth.mode`：`loopback`（默认）、`trusted-proxy` 或 `bearer-token`。`trusted-proxy` 仍要求 upstream 为 loopback；`bearer-token` 要求 `token_env` 指向非空密钥环境变量。非 loopback host 配合 `loopback` 或 `trusted-proxy` 是配置错误。`describe` 只显示模式和绑定地址，绝不显示 token 或环境变量值。模型端点的访问控制是独立问题，不替代 MCP 入站鉴权。
+
+## 默认路径：直通但不盲信
+
+默认部署没有策略 profile、语义标签、动作白名单或确认步骤。`TaskContract` 的业务输入只表达目标、完成断言和预算，仍保留任务标识等关联信息；不再要求 `permissions.actions`、`permissions.semantic_intents`、`policy_profile` 或 `policy_overrides`。
+
+执行前仍必须通过以下不可省略的技术校验。这些是避免错误输入的正确性条件，不是权限审查：
+
+1. Proposal 包含一个或多个有序、已注册的 canonical action，字段和坐标空间必须有效。
+2. 坐标必须落在当前桌面边界内；指针动作必须命中当前可交互目标。
+3. 键盘动作必须有可用的活动窗口；执行器必须声明支持该动作。
+4. 从提案到注入前重新观察一次；目标、命中点、活动窗口或坐标空间已变化则丢弃本步、重新观察和提案，绝不注入。
+5. 执行器只接受 canonical action，不能开放任意 shell、Python 或动态表达式。
+6. 达到 `max_steps` / `max_retries` 后停止，执行送达后才采集证据并评估断言。
+
+这使失败语义清晰：环境变化可在预算内重新观察和提案；格式错误、能力缺失不原样重试；执行器错误是执行失败；断言不成立是任务尚未完成。它们都不能伪装为“权限不足”。校验按动作实际依赖执行，不因无关窗口变化而否定整个桌面快照。
+
+## 保留的核心事实
+
+v2.2 保留下列事实及其关联语义；不要求每种事实都拥有独立服务、仓库、事件或持久化对象：
 
 ```text
-                         +------------------+
-                         |   MCP facade     |
-                         | run/status/      |
-                         | confirm/reset    |
-                         +--------+---------+
-                                  |
-                                  v
-+----------------+       +------------------+       +------------------+
-| CompositorPort |------>| CoreOrchestrator |<------| ProposalProvider |
-| Snapshot/Frame |       | policy + state   |       | ActionProposal   |
-+----------------+       +---+----------+---+       +------------------+
-                            |          |
-             PolicyDecision |          | ActionProposal
-                            v          v
-                     +-----------+  +----------------+
-                     | ActionGate|  | ActionExecutor |
-                     +-----------+  +-------+--------+
-                                           |
-                                           v
-                                    ExecutionReceipt
-                                           |
-                     +---------------------+---------------------+
-                     v                                           v
-              EvidenceProvider                         AssertionEvaluator
-              EvidenceRecord                           AssertionResult → TaskState
+CanonicalSnapshot → ActionProposal → ExecutionReceipt → EvidenceRecord → AssertionResult → TaskState
 ```
 
-| 边界 | 输入 | 输出 | 禁止事项 |
-| --- | --- | --- | --- |
-| ProposalProvider | `ModelContext` | 一个 `ActionProposal` | 执行、裁决、修改状态 |
-| ActionGate | Proposal、Contract、Snapshot | `PolicyDecision` | 注入输入 |
-| ActionExecutor | 已允许 Proposal | `ExecutionReceipt` | 证明业务成功 |
-| EvidenceProvider | assertion、Snapshot | `EvidenceRecord` | 判定任务完成 |
-| AssertionEvaluator | assertion、evidence | `AssertionResult` | 调用 adapter 或 executor |
+- `CanonicalSnapshot` 是一次桌面观察的标准表示。
+- `ActionProposal` 保存非空有序 actions 和来源 snapshot；单动作也使用同一序列表示，删除首动作兼容视图。
+- `ExecutionReceipt` 只陈述输入是否实际送达、失败原因和执行引用，不宣称业务完成。
+- `EvidenceRecord` 与 `AssertionResult` 是完成状态的唯一依据。
+- `TaskState` 使用 `running`、`retrying`、`completed`、`delivered-unverified`、`failed`；删除 `needs-confirmation` 和确认恢复分支。
 
-## 流程图
+保留多动作提案、顺序执行和部分执行回执；这些支撑模型连续输入及故障恢复。执行前统一检查环境依赖，任一检查失效则零注入；执行中失败立即停止剩余动作，记录已尝试动作，不能自动重放整个序列。完整送达后统一观察和评估。依赖前一步界面变化的动作应分到下一轮观察后提案。`drag` 等复合输入继续由 executor 实现。
+
+## ProposalValidator 契约
+
+v2.1 的 `ActionGate` 同时承担协议校验、Guard 构造、语义分类、权限匹配、策略裁决和确认，职责过多且会造成普通步骤被拒绝。v2.2 将其拆减为 `ProposalValidator`，契约固定为：
 
 ```text
-调用方             Core / Policy                 Executor             Evidence / Assertion
-  |                    |                              |                       |
-  | task + goal        |                              |                       |
-  +------------------->| observe → Proposal          |                       |
-  |                    |                              |                       |
-  |                    | Decision(deny/invalid)      |                       |
-  |<-------------------+------------------------------+                       |
-  | TaskState=failed   |                              |                       |
-  |                    |                              |                       |
-  |                    | Decision(confirm)           |                       |
-  |<-------------------+------------------------------+                       |
-  | TaskState=needs-confirmation                      |                       |
-  |                    |                              |                       |
-  | confirm            | guard recheck               |                       |
-  +------------------->|-- stale --> TaskState=running|                       |
-  |                    |-- allow -------------------->| execute               |
-  |                    |                              | Receipt(failed)       |
-  |<-------------------+------------------------------+                       |
-  | TaskState=failed   |                              |                       |
-  |                    |                              | Receipt(delivered)    |
-  |                    |<-----------------------------+                       |
-  |                    |----------------------------------------------->| collect
-  |                    |<-----------------------------------------------+ AssertionResult
-  |<-------------------+ TaskState=completed / running / retrying        |
+prepare(snapshot, proposal) → PreparedProposal | ValidationFailure
+recheck(prepared, latest_snapshot) → PreparedProposal | ValidationFailure
+
+ValidationFailure = { reason_code, retryable }
 ```
 
-## 不变量
+`PreparedProposal` 是仅在本次执行临界区存活的内部值，不是公开协议对象，也不需要独立持久化。它包含 canonical actions、来源 snapshot、每个动作的已校验参数，以及实际依赖的桌面条件：坐标空间和边界、指针命中目标 identity、键盘焦点窗口、执行器支持能力及静态部署动作限制。`prepare` 校验 action type、必填字段、字段类型与范围、文本/按键/拖拽等动作参数、坐标转换结果、能力声明和依赖目标；不推断语义或用户意图。
 
-1. `PolicyDecision` 与 `ExecutionReceipt` 是不同事实。
-2. 未调用 `ActionExecutor` 时不存在 Receipt 或 `execution.completed`。
-3. `ExecutionReceipt.delivered` 不等于业务成功；只有 Assertion 可证明完成。
-4. `ActionProposal.claimed_intent` 是声明，不是策略真值。
-5. 业务完成条件只来自 `TaskContract.assertions`；Proposal 不包含预期业务结果。
-6. 未知、冲突或过期证据不得产生通过结论。
-7. Attribution 是审计诊断旁路，不属于默认通信。
-8. `event_type` 是审计事件类别的权威表达。
-9. canonical action 的选择是 Proposal 实现细节；TaskContract 未枚举某个原始动作本身不是拒绝理由。
-10. `done` 是无桌面副作用的生命周期标记，不参与动作授权或执行能力判断。
+`recheck` 在执行锁内以最新观察重查 PreparedProposal 的实际依赖。任何依赖变化返回 retryable failure 且零注入；无关窗口或桌面变化不应使其失败。成功值立即交给 executor。不会生成 `PolicyDecision`、`SemanticResolution` 或一组 `ProposalGuard`。
 
-## 领域模型
+结构错误、未知动作、无效参数、配置错误和执行器能力缺失返回 `retryable=false`；目标消失、遮挡、焦点变化或坐标空间变化返回 `retryable=true`。ReasonCode 是公开诊断的稳定来源，具体内部校验字段不是新协议。
 
-| 对象 | 责任 |
+## 结果、断言与状态转换
+
+`completed` 始终表示所有必需断言通过。为了支持无预期窗口的应用启动、快捷键和单纯输入，任务可以没有 assertions；这种任务在至少一个 action sequence 完整送达后，由 provider 返回 `done`，进入终态 `delivered-unverified`。它表示输入已送达、没有完成证明，不能用作断言成功或下游业务成功。
+
+空断言任务在输入尚未送达时收到 `done`，或执行只部分送达、结果不确定时，不得进入 `delivered-unverified`；按相应失败语义结束。带 assertions 的任务即使收到 `done` 也必须评估断言，不能因 `done` 或 receipt 而 completed。`TaskState` 因此使用 `running`、`retrying`、`completed`、`delivered-unverified`、`failed`；删除 `needs-confirmation`。
+
+状态归约只接受如下失败分类，所有路径均记录稳定 ReasonCode：
+
+| 事件 | 状态与预算 |
 | --- | --- |
-| `TaskContract` | 目标、策略选择、可验证断言、预算；兼容期可携带非权威动作声明 |
-| `CanonicalSnapshot` / `FrameReference` | 标准化桌面观察 |
-| `ActionProposal` | 非空、有序的 canonical action 序列、来源 snapshot、可选 `claimed_intent`；`action` 是首动作兼容视图 |
-| `PolicyDecision` | `allow`、`deny`、`confirm`、`stale`、`invalid` |
-| `ExecutionReceipt` | Proposal 级 `delivered`、`failed`、`unknown`，以及逐原子动作回执 |
-| `EvidenceRecord` | provider 对 subject 的事实材料 |
-| `AssertionResult` | 对 TaskContract assertion 的结论及排除材料 |
-| `TaskState` | `running`、`needs-confirmation`、`retrying`、`completed`、`failed` |
+| `ValidationFailure(retryable=false)` | `failed`；不消耗 `max_retries`，零注入。 |
+| retryable validation failure / stale recheck | `retrying`，消耗一次 `max_retries`；预算耗尽后 `failed`，零注入。 |
+| executor failure、部分送达或送达结果不确定 | `failed`；不自动重放整条序列，也不消耗重试预算。 |
+| 必需断言明确失败且 `recoverable=true` | `retrying`，消耗一次 `max_retries`；预算耗尽后 `failed`。 |
+| 必需断言明确失败且 `recoverable=false` | `failed`；不消耗重试预算。 |
+| 断言 unknown/conflict 或尚未收集到适用证据 | `running`，不消耗重试预算；后续轮次可重新观察和提案。 |
+| 所有必需断言通过 | `completed`。 |
 
-领域错误使用统一 `ReasonCode`。诊断 Attribution 可补充 stage、owner 和 event kind，但不得另建错误码体系。
+每个被接受、准备执行的 proposal sequence 消耗一个 `max_steps`；失败的 prepare/recheck 不消耗 steps。达到 steps 上限但尚未进入 `completed` 或 `delivered-unverified` 时进入 `failed`。`done` 不注入输入也不消耗 steps。
 
-## Proposal 事务与动作序列
+## 部署限制只保留已有实际能力
 
-```text
-observe → proposal → decision
-                    ├─ deny / confirm / stale / invalid → TaskState
-                    └─ allow → preflight all guards
-                                  ├─ stale → TaskState（零注入）
-                                  └─ action[0..n] → aggregate Receipt
-                                                         → observe → evidence → assertion → TaskState
-```
+现有 `action_restriction` 支持部署者限制原始动作，保留这项能力，但收敛为可选的静态部署配置 `deployment.denied_actions`，由 validator 检查并返回稳定的限制原因。未配置或空列表表示不限制动作；未知或重复动作在启动时报错。任务不能覆盖部署限制，describe 显示实际配置。
 
-一次模型输出是一个 Proposal，无论模型用一个高层动作，还是用移动、按下、移动、释放等多个动作表达。
-策略、确认和审计按 Proposal 裁决一次；每个原子动作仍保留自己的 Guard 和回执。执行前统一重检全部
-Guard，任一失效则产生新的 `PolicyDecision(status=stale)`，且不注入任何动作。执行阶段严格按序，
-任一步失败就停止剩余动作，并产生唯一的 Proposal 级 `ExecutionReceipt(status=failed)`，其中保留已尝试
-动作的明细。动作间不重新调用模型，也不重新观察桌面；只有序列结束后才统一观察并评估断言。
-Qwen pending proposal 由 Decision 或 Proposal 级 Receipt 终结，不能伪造 Receipt。
+v2.2 删除通用 `PolicyProvider`、profile、语义分类、多 provider 决策合并、`confirm` 接口及确认状态机。旧 `policy_providers.action_restriction` 配置改为直接的部署动作限制字段，同步修改示例；不增加自动迁移或旧配置回退。
 
-## 公开协议
+远程 MCP transport 继续保留，并遵守上述连接边界。通用审批扩展留待具体需求出现后单独设计，不作为本次交付条件。
 
-普通调用通过 `gui_run`，只使用：
+## 运行态与记录收敛
+
+- 一个运行态所有者负责任务、当前提案、实际回执、断言结果、去重及模型反馈终结标记。`TaskState` 只在一处更新；诊断和持久化不能成为第二个状态来源。
+- 编排直接更新运行态，再按配置记录事件；执行与 status 不通过审计存储查找必需对象。删除只为同步运行态和审计而存在的透传包装，不为每种事实建立 manager/repository。
+- 保留执行锁，以及“未执行、部分执行、完整送达”的区别。去重与模型反馈标记的生命周期随任务管理；进程重启不隐式恢复或重放输入。
+- 原因码、阶段、提案标识和实际执行明细足以表达常规失败。完整归因图按需诊断，不再为一次失败生成多份控制流对象。
+- `TaskRepository`、`TransactionRecorder`、`AuditRecorder`、`ObjectStore`、`EventLedger` 按以上职责收敛；具体合并以调用关系为准，不预设必须保留或必须合成一个大文件。
+
+## 公开接口与诊断
+
+普通调用仍是紧凑生命周期接口：
 
 ```text
-run → status → confirm → reset
+gui_run: run → status → reset
 ```
 
-`gui_diagnostic` 承担 `observe`、`propose`、`decide`、`execute`、`evaluate` 和 `trace`，仅用于诊断或测试。
-`gui_run` 的任务状态只由 `TaskState` 约简；请求或协议错误可直接归并为 `failed`。响应只包含公开状态、
-`task_state`、必要引用和恢复信息，不返回 Guard、Attribution 或原始领域对象。
-`gui_diagnostic(describe)` 可展开 schema revision、能力和 provider。
+`gui_run` 另保留 `describe`，删除 `confirm`。诊断工具是否注册由配置决定：关闭时 MCP 不注册 `gui_diagnostic`；开启时它可以查看 observation、proposal、validation、receipt 和 assertion，但不承担普通工作流。诊断执行复用同一校验执行入口，不能建立第二条执行链。
 
-## 配置与审计
+目标配置统一使用 `recording`：
 
-JSON 是非秘密运行配置唯一来源；环境变量仅用于密钥和桌面会话资源。启动必须输出脱敏 effective config，
-并警告被忽略的旧行为变量。HTTPS 使用系统信任库。
+```json
+"recording": {
+  "audit": false,
+  "diagnostic": false,
+  "directory": ".autoui-audit",
+  "retention_days": 7,
+  "max_gib": 16
+}
+```
 
-对外审计称为 `AuditTrail`。ObjectStore 保存对象/artifact，EventLedger 保存顺序与因果关系；二者是同一
-审计记录的内部实现，不是竞争的事实源。旧 CSV 归档必须可读，新 CSV 不写重复 `epistemic_type`。
+`audit` 和 `diagnostic` 默认均为 `false`；`diagnostic=true` 要求 `audit=true`，否则配置错误。两者关闭时只保留当前进程内运行态，响应不得返回 trace/object 引用；`audit=true`、`diagnostic=false` 时持久化最小任务、提案、回执、最终断言和关联事件，但不注册 `gui_diagnostic`，也不保存截图、模型原文或完整桌面树；两者为 true 时才注册诊断工具并持久化详细诊断材料。持久化引用可在保留期内由 audit CLI 查询；内存引用仅在 task reset 或进程退出前有效，reset 后所有该任务引用失效。默认响应只返回任务状态、必要的下一步信息及可用时的持久化诊断引用。
 
-## 扩展规则
+## v2.2 迁移边界
 
-- 新合成器实现 `CompositorPort`，具体实现使用 adapter 命名，只输出 canonical desktop facts。
-- 新桌面能力在 backend 内校验并路由到 `ActionExecutor`，不得开放任意 shell。
-- 新原始动作限制通过 `PolicyProvider` 和 policy profile 扩展，不得在 Core 增加每任务动作白名单分支。
-- 新 Evidence Provider 声明可提供的标准 fact path；AssertionEvaluator 决定适用、排除和冲突。
-- 新模型实现 `ProposalProvider`，返回一个可含有序动作序列的 Proposal，不能执行或放宽策略。
+| 移除或降级 | 保留或替换 |
+| --- | --- |
+| `TaskPermissions` 的 actions / semantic intents | goal、assertions、limits |
+| 默认 semantic policy profile、per-task override 与通用 PolicyProvider | 默认无限制；可选静态部署动作限制 |
+| `SemanticTag`、`SemanticResolution`、模型 intent 审查 | 仅保留模型调试信息，不参与控制流 |
+| `PolicyDecision`、`needs-confirmation` 和 confirm | 内部校验值与直接失败原因 |
+| 单动作兼容视图、重复 Guard 持久化对象 | 统一 actions 序列、内部校验数据、含实际执行明细的 Proposal 回执 |
+| 全量默认审计对象落盘 | 可选、最小事件审计；诊断按需展开 |
+| 重复状态索引、事务与审计间透传包装 | 一个运行态所有者、一个状态更新入口、按需记录 |
+| 未定义的远程监听与审计/诊断开关 | 显式 transport auth 与 recording 配置契约 |
+
+## 快速迭代：直接删除兼容代码
+
+项目尚未商用，v2.2 允许破坏性变更，不设置弃用期，不维护旧协议适配层。
+
+- 直接删除已废弃字段、接口别名、旧配置回退、兼容后端及仅为历史格式保留的解析分支；同步更新仓库内调用方、配置、示例与测试。
+- 删除 `permissions`、任务级 `policy_profile` / `policy_overrides` 和仅用于旧路径的 ReasonCode。旧请求按当前 schema 返回清晰的字段错误，不静默忽略或补齐旧行为。
+- 仅保留当前审计格式的读写；不要求新运行时读取历史格式，也不删除已有审计文件。需要查看旧记录时使用对应 Git 版本。
+- 更新协议版本并说明破坏性变化；旧实现通过 Git 历史查阅，无须为其保留运行时分支。
+- 多动作提案、桌面能力和 provider 扩展有实际功能价值，不能仅因复杂或较早实现就归为兼容代码。
+
+## 验收条件
+
+1. 当前任务格式不需要 permissions 或策略覆盖即可运行；已删除字段有明确输入错误，仓库内调用方全部使用当前格式。
+2. 输入文本、快捷键、点击和拖拽不会因语义分类、未知标签或调用方未列举动作而进入确认或拒绝。
+3. 坐标越界、目标消失、遮挡、焦点变化和能力缺失仍阻止输入注入，并以明确技术原因重试或失败。
+4. `ExecutionReceipt.delivered` 仍不等于任务成功；只有断言通过才 completed，空断言任务只能成为 delivered-unverified。
+5. 显式配置的部署动作限制有效，未配置时普通动作无需审批；无通用策略与确认状态机。
+6. 多动作提案、拖拽、失败短路及部分执行事实保留；诊断关闭时不额外持久化逐动作 Guard 或语义审查对象。
+7. 关闭审计仍可运行、去重、查询状态和 reset；模型收到与实际执行一致的终结反馈。
+8. 平台、模型、输入与证据能力无退化；没有为了减少文件而把平台实现并入 Core，也没有新增透传层补回已删除的复杂度。
+9. 默认仅 loopback 监听；所有非 loopback 部署有 bearer-token 或 loopback upstream 的可信反向代理配置。三种 recording 模式的工具注册、持久化范围和引用生命周期符合本文契约。

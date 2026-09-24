@@ -60,13 +60,23 @@
   `新增功能所改 core LOC / 新增功能总 LOC`。
 - 所有未完成或无法在当前环境测量的项目，明确标记为“未测量”，不得以零失败代替。
 
-## 当前基线评分
+## 当前 S0 证据
+
+v2.2 重构前 S0 基线对应 commit `ce57a7d4f212cc1084a7e35598fba90803ac6292`，
+2026-09-24，完整自动测试为
+`144 passed, 24 subtests passed`。当前会话是 TTY，`treeland-debug --json tree` 无输出并超时，
+因此真实桌面成功率、误报完成、人工介入、模型调用数和耗时仍未测量。
+
+运行时代码相对上次评分仍为 v2.1；本次只建立重构基线，没有用新增测试数量重新计算架构分数。
+以下 83.7 分保留为历史评分，不能当作 v2.2 实施完成后的评分。
+
+## 上次完整评分（历史）
 
 ### 评估快照
 
 | 项目 | 当前证据 |
 | --- | --- |
-| 评估对象 | v2.1，commit `faea848`，2026-09-15 |
+| 评估对象 | v2.1，commit `faea848`，2026-09-15（历史快照） |
 | 自动化验证 | `uv run --with pytest pytest -q`：114 passed，24 subtests passed |
 | 静态边界 | `tests/test_core_boundaries.py` 覆盖 Core/adapters、desktop transaction、Facade 分派与运行描述边界 |
 | 真实环境 | P5 未完成；没有可复核的真实 Treeland 任务报告 |

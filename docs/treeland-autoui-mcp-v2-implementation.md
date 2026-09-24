@@ -1,177 +1,210 @@
-# AutoUI MCP v2.1 实现指南
+# AutoUI MCP v2.2 实施指南
 
-本文是代码维护入口，只说明当前实现、运行方式、扩展位置和发布前待办。
+本文是 v2.2 的实施清单和进度入口。目标是简化、紧凑、核心功能完整，延续“小核心、大扩展、克制通信”。
 
-- 架构哲学、模块关系与通信协议：[`treeland-autoui-mcp-v2-design.md`](treeland-autoui-mcp-v2-design.md)
-- 真实桌面验收步骤：[`manual-test-guide.md`](manual-test-guide.md)
-- 对外使用示例：[`../README.md`](../README.md)
+简化覆盖执行、状态、记录、协议和依赖。保留能力与失败语义，不保留全部现有机制；“可选化”只有在同时消除核心依赖时才算简化。
 
-## 当前状态
+- 目标架构：[v2.2 架构设计](treeland-autoui-mcp-v2-design.md)
+- 桌面验收：[手工验收指南](manual-test-guide.md)
+- 使用入口：[README](../README.md)
 
-v2.1 的既有事实链与扩展边界已经收敛。P20 已移除 Core 中按任务原始动作白名单产生的机械拒绝，
-并把特殊部署需要的动作限制移至可选策略扩展。发布前剩余 P5 真实 Treeland/Deepin 验收；环境未验收
-不等于模型、策略或执行失败，必须单独记录。
+## 当前状态与执行约定
 
-| 范围 | 状态 | 结果 |
+当前运行时代码仍为 v2.1，领域 schema version 为 `1`，运行描述 revision 为 `2.1-p6`。
+本次只完成实施规划；以下阶段均未实现、未验收。v2.1 的 P20 已删除原始动作白名单硬拒绝，
+但默认语义确认、任务语义权限和旧兼容分支仍存在。真实 Treeland/Deepin 验收尚未完成。
+
+项目尚未商用，允许破坏性变更：旧接口、字段、别名和兼容分支直接删除，同步修改仓库内调用方、
+配置、测试和文档，不设置弃用期。历史实现由 Git 保存；已有审计文件不删除，新运行时不承担旧格式读取。
+
+按 S0 → S1 → S2 → S3 → S4 → S5 执行。每阶段完成相关代码、调用方和回归后更新状态与证据。
+不以文件数或行数下降代替功能验收，不为了拆文件新增透传层。
+
+| 阶段 | 交付物 | 状态 |
 | --- | --- | --- |
-| P0–P4、P6–P19 | 完成 | 核心事实链、扩展边界、公开协议、命名和文档已经收敛 |
-| P20 | 完成 | 原始动作不再作为 TaskContract 硬授权；限制能力移至可选 PolicyProvider |
-| P5 | 待完成 | 真实 Treeland/Deepin 环境回归 |
+| S0 | 功能基线与真实任务记录 | 已完成自动基线；真实桌面环境阻塞 |
+| S1 | 统一当前协议，删除旧兼容入口 | 待实施 |
+| S2 | 轻量校验执行链，删除审批框架 | 待实施 |
+| S3 | 单一运行态、精简记录及诊断解耦 | 待实施 |
+| S4 | 默认依赖、配置、文档与示例收敛 | 待实施 |
+| S5 | 全量回归、真实桌面验收及版本交付 | 待实施 |
 
-已实现的稳定边界：
+## 必须保留的能力
 
-- 事实链固定为 `Proposal → PolicyDecision → ExecutionReceipt → Evidence → AssertionResult → TaskState`。
-- 未调用执行器时没有 `ExecutionReceipt`；执行送达不等于业务断言通过。
-- `TaskState` 是公开任务状态的唯一来源，协议错误单独归并为 `failed`。
-- `gui_run` 只暴露任务生命周期；逐阶段事实和 Attribution 只通过 `gui_diagnostic` 查看。
-- Core 不依赖具体合成器、模型、证据实现或桌面平台工具。
+- Core 不依赖 Treeland、Deepin、Qwen、PyAutoGUI 或 MCP transport；平台与模型实现仍通过 ports/adapters 接入。
+- 截图、窗口观察、坐标映射、应用启动、平台快捷键、鼠标、键盘、拖拽及已有证据 provider。
+- Proposal 的非空有序动作序列、执行失败短路、部分执行回执；不能强制模型每轮只输出一个动作。
+- 执行前的结构、能力、坐标和目标一致性检查；观察重检与输入注入仍在同一执行临界区。
+- 同一 Proposal 的重复执行保护、有界步骤和重试、reset、Qwen session 与实际执行结果同步。
+- 未调用 executor 不产生执行回执；delivered 不等于 completed；done 不产生桌面输入且不能替代完成断言。
+- 未知、冲突、过期证据不通过断言；状态只有一个权威来源，错误使用同一 ReasonCode 体系。
+- MCP HTTP transport、显式连接边界与部署动作限制；不保留通用策略插件、语义审批和确认流程。当前没有连接鉴权实现，v2.2 前不得声称已有鉴权。
 
-## P20：机械授权边界收敛（已实现）
+## 变更方法与提交边界
 
-### 目标行为
+1. S0 先列出“能力 → 当前入口/测试 → 目标责任”矩阵，包含正常路径和失败恢复；记录拟删除机制由何处接替，或为何无需接替。
+2. S1 统一协议并清理兼容；S2 在此基础上替换执行链；S3 再去掉失去用途的状态与记录包装；S4 收敛安装和使用入口；S5 做完整验收。
+3. 每个可独立验证的改动形成一个候选提交单元，更新生产代码及仓库内调用方后再进入下一单元。此处是实施拆分，不表示本次文档更新已执行代码修改或 Git 提交。
+4. 删除前检索全部调用方；一个单元结束后运行受影响测试。测试应验证保留行为，不为已经删除的对象结构重建兼容测试。
+5. 新旧执行链不长期并存；回退通过对应代码版本和配置完成。已有审计文件原样保留，不自动转换或删除。
+6. 记录减少的核心概念、状态分支、重复存储与调用层，并与能力矩阵对照；不能仅以测试数量或删行数量验收。
 
-- 用户给出目标后，模型可在执行器支持的 canonical actions 中选择实现方式；TaskContract 没有预先列出
-  某个动作，不得单独导致拒绝。
-- Core 继续验证 Proposal 协议、`done` 位置、坐标空间、桌面边界和 ProposalGuard。
-- 语义策略、确认、高风险拒绝和断言验证保持不变；P20 不等于关闭策略或绕过 Guard。
-- 需要只读、鼠标专用或多租户隔离的部署，通过可选 `PolicyProvider` 检查 Proposal action sequence，
-  输出独立策略标签，再由现有 policy profile 决定 allow、confirm 或 deny。
+## S0：建立功能基线
 
-### 实现
+**范围**：现有 tests、`docs/manual-test-guide.md`、`docs/PROJECT_SCORECARD.md`、`src/mcp_autogui/regression.py`。
 
-1. `core/action_gate.py` 的资格检查只保留 `done` 顺序、coordinate space 和 desktop bounds 校验；
-   已删除 `action.type not in contract.permissions.actions` 拒绝分支。
-2. `TaskPermissions.actions` 与输入字段 `permissions.actions` 在当前协议版本中保留解析和序列化兼容，
-   但 Core 不再把它作为授权事实。不得引入 `explicit_user_authorization`、全局 allow 开关或新的授权布尔值。
-3. `MECHANICAL_PERMISSION_DENIED` 暂时保留为可读取的历史 ReasonCode，避免破坏持久审计；新决策路径不再产生它。
-4. 若执行器不支持某个动作，由 backend/executor 返回稳定的 capability/execution 错误；不要重新借用
-   TaskContract 动作列表模拟运行时能力。
-5. `action_restriction` 是独立 `PolicyProvider` 与 JSON 配置项。Provider 只提供确定性的
-   `action_restricted` 策略标签，不执行动作；默认配置不启用。
+1. 运行现有自动测试，记录 commit、结果和已有失败，不沿用旧评分卡中的测试数量作为本次证据。
+2. 建立固定桌面任务集：启动应用、输入中文、快捷键、拖拽、终端运行 htop 并关闭、含多个动作的提案。
+3. 记录每项任务是否成功、是否误报完成、人工介入次数、模型调用数和耗时；重构后使用相同环境与目标复测。
+4. 标出当前会因 unknown、content_edit、semantic_intents 阻塞的路径，作为 S2 的行为回归输入。
+5. 盘点 TaskRepository、TransactionRecorder、AuditRecorder、ObjectStore、EventLedger 的读写关系；标出执行或 status 依赖审计对象的位置。
+6. 核对旧 HTTP 后端与内嵌 Qwen 的能力差异；有独有核心能力时先迁入保留路径再删除后端，不能把实际能力误当兼容代码。
+7. 将下列 v2.2 契约写成 S0 测试矩阵并由实现前评审确认：ProposalValidator 的参数/能力检查，空 assertions 的 delivered-unverified 终态，状态/预算映射，transport auth，以及三种 recording 模式。
 
-### 兼容与迁移
+**完成条件**：有可复核的自动测试基线、任务矩阵和上述五项契约的用例表。真实环境不可用时标记未测及原因，可继续 S1–S4，
+但不能宣称真实验收完成。无需另建评分或 benchmark 框架。
 
-- 现有调用方可以继续发送缺失、空或部分 `permissions.actions`；这些取值不再改变 Core 决策。
-- `gui_run`、`gui_diagnostic`、TaskState、Proposal、Decision、Receipt 与审计结构保持不变。
-- 不在 P20 删除字段、ReasonCode 或重写历史审计；删除属于后续协议大版本工作。
-- schema revision 已从 `2.1-p5` 递增到 `2.1-p6`。
+**S0 记录（2026-09-24）**：commit `ce57a7d4f212cc1084a7e35598fba90803ac6292` 上执行完整测试，
+`144 passed, 24 subtests passed`。已完成能力/测试映射、旧审批阻塞路径、运行态与审计关系、旧 HTTP 后端差异及固定任务矩阵。
+当前为 TTY 会话且 `treeland-debug --json tree` 超时无输出，真实任务均标记环境阻塞；S1–S4 可继续，S5 前必须补测。
 
-### 自动回归
+## S1：统一协议，直接删除兼容代码
 
-- 同一 Proposal 在 `permissions.actions` 缺失、空、部分和完整四种 contract 下，不得出现
-  `MECHANICAL_PERMISSION_DENIED`，其语义策略与 Guard 结果应一致。
-- `done` 无须出现在任何调用方动作集合中，且只能位于动作序列末尾。
-- 坐标空间错误、桌面越界、目标变化和遮挡仍分别产生现有稳定结果，并且零输入注入。
-- 默认高风险语义策略仍能 confirm/deny；模型 `claimed_intent` 仍不能降低独立证据支持的策略级别。
-- 可选限制 PolicyProvider 单独覆盖：默认未启用时不影响自动化；启用时只拒绝其配置的 action types。
+**主要入口**：
 
-真实桌面手工回归保留“终端运行 `htop`、关闭终端”：模型无论选择键盘、快捷键还是点击，都不能因原始动作
-未枚举而失败；执行送达与任务完成仍分别由 Receipt 和 Assertion 证明。该项属于 P5，不冒充自动测试结果。
+- `core/transaction.py`、`core/protocol.py`、`facade.py`、`runtime_description.py`
+- `qwen_backend.py`、`adapters/proposal/qwen_cua.py`、`adapters/providers.py`
+- `server_config.py`、`core/audit.py`、`core/ledger.py`、`audit_cli.py`
 
-### 完成条件
+**改动**：
 
-自动回归已覆盖默认路径和限制 provider；README 示例不再要求调用方预测原始动作；手工验收矩阵已加入
-V2-16 与 V2-17。实现没有用“默认填入所有 actions”替代删除硬拒绝。
+1. Proposal 只保留 `actions` 序列；删除 `action` 首动作兼容视图和旧单动作输入归一化。
+   同步修改 parser、provider、executor 调用、桌面事务入口及测试 fixture。
+2. 删除旧 gui-mcp HTTP 兼容后端、二进制/JSON 回退及相关模式配置，保留内嵌 Qwen 与模型端点通信。
+   MCP 的 HTTP transport 和模型的 HTTP API 仍是当前功能。
+3. 删除旧操作别名、旧环境变量行为回退和历史审计格式转换。配置使用 JSON，密钥及桌面会话资源仍来自环境。
+4. 清理仅用于兼容的测试和 fixture；将当前行为测试迁到唯一协议表示。
+5. 领域 schema version 更新为 `2`，运行描述 revision 更新为 `2.2`，统一声明来源。
+   JSON 配置 schema 独立版本化：发生字段删除或语义变化时同步升级配置版本与两份配置文件。
+   不增加旧版本转换器；旧字段或格式给出明确输入错误。
+6. 先实施并测试 transport auth 配置：默认 loopback；可信反向代理只接 loopback upstream；非 loopback 要求 bearer-token。
+   将示例 `0.0.0.0` 改为 loopback，旧无鉴权暴露配置直接报错，不静默接受。
 
-## 运行与验证
+**验收**：单动作和多动作均用 actions 正常工作；多 tool-call 顺序不变；内嵌模型连接和反馈可用；
+旧入口明确不受支持，无静默回退。验证 facade、Qwen、配置、入口、审计读取与工具注册相关测试。
 
-```bash
-uv run treeland-autogui-mcp --config config/mcp-autoui.json
-uv run autoui-smoke --config config/mcp-autoui.json
-uv run --with pytest pytest -q
-```
+**建议拆分**：actions 统一及调用方 → 旧后端/配置回退清理 → 历史格式分支删除及版本声明。版本先随协议修改更新；后续配置变更同步调整，S5 核对最终版本。
 
-所有非秘密运行配置来自 `--config` 指定的 JSON。环境变量只承载模型密钥和桌面会话资源；旧行为变量
-会被忽略并告警。HTTPS 使用系统信任库，不在项目配置中关闭证书验证或指定私有 CA 文件。
+## S2：精简默认执行链
 
-`autoui-smoke` 是只读预检：输出脱敏 effective config，检查 provider 配置和
-`treeland-debug --json tree`，然后调用 `gui_run(describe)`。部署在反向代理之后时使用
-`--mcp-url https://host/mcp` 指向真实入口。
+**主要入口**：
 
-## 阅读顺序
+- `core/action_gate.py` → `core/proposal_validator.py`（目标文件）
+- `core/orchestrator.py`、`core/task.py`、`core/task_state.py`、`core/context_builder.py`
+- `core/task_repository.py`、`core/transaction_recorder.py`、`core/transaction.py`
+- `ports/policy.py`、`adapters/policy/action_restriction.py`、`provider_registry.py`
+- `facade.py`、`protocol_response.py`、`desktop_transactions.py`、`mcp_autogui_main.py`
 
-| 关注点 | 入口 |
-| --- | --- |
-| MCP 注册与依赖组装 | `src/mcp_autogui/mcp_autogui_main.py`、`src/mcp_autogui/runtime_description.py` |
-| 公开与诊断协议 | `src/mcp_autogui/facade.py`、`src/mcp_autogui/protocol_response.py` |
-| Proposal 事务与有界运行 | `src/mcp_autogui/core/orchestrator.py` |
-| Proposal、Decision、Receipt | `src/mcp_autogui/core/transaction.py` |
-| TaskContract 与 TaskState | `src/mcp_autogui/core/task.py`、`src/mcp_autogui/core/task_state.py` |
-| 运行态与事实记录 | `src/mcp_autogui/core/task_repository.py`、`src/mcp_autogui/core/transaction_recorder.py` |
-| 桌面工具事务入口 | `src/mcp_autogui/desktop_transactions.py`、`src/mcp_autogui/desktop_backend.py` |
-| 策略与 Guard | `src/mcp_autogui/core/action_gate.py` |
-| Evidence 与 Assertion | `src/mcp_autogui/core/evidence.py`、`src/mcp_autogui/core/assertion_evaluator.py` |
-| Ledger 与 Attribution | `src/mcp_autogui/core/audit_recorder.py`、`src/mcp_autogui/core/ledger.py` |
-| 端口与外部实现 | `src/mcp_autogui/ports/`、`src/mcp_autogui/adapters/` |
-| 配置与 provider 注册 | `src/mcp_autogui/server_config.py`、`src/mcp_autogui/provider_registry.py` |
-
-主路径应能直接读成：
+**默认流程**：
 
 ```text
-AutoUIFacade
-  → CoreOrchestrator
-      → observe → propose → ActionGate.decide
-          ├─ deny / confirm / stale / invalid → TaskState
-          └─ allow → ActionExecutor → ExecutionReceipt
-                                      → EvidenceRecord → AssertionResult → TaskState
+observe → propose(actions) → validate → recheck → execute → observe/evaluate → TaskState
 ```
 
-模块之间传递领域对象或不可变对象引用，不传“类似 receipt”的临时结构。Repository 保存当前运行态，
-Recorder 保存事实及因果记录；Attribution 是失败后的诊断旁路，不参与正常控制流。
+**改动**：
 
-## 对外边界
+1. 用轻量 ProposalValidator 替代 ActionGate，采用 `prepare(snapshot, proposal) → PreparedProposal | ValidationFailure(reason_code, retryable)`
+   和 `recheck(prepared, latest_snapshot) → PreparedProposal | ValidationFailure(reason_code, retryable)` 契约，保留协议、参数、能力、坐标与目标检查。
+   校验结果及每个动作需要的环境依赖只作为内部数据，不建立独立 Guard 持久化链。
+   PreparedProposal 表示校验后的完整提案及动作依赖，不限制为单个原子动作；在执行锁内 recheck 后立即使用，不持久化。
+2. 删除 TaskPermissions、任务级 policy_profile / policy_overrides、默认语义分类及其状态分支，
+   清理 ContextBuilder、响应与 ReasonCode 中仅服务这些路径的内容。旧任务字段直接报错。
+3. 默认路径不生成 PolicyDecision、SemanticTag、SemanticResolution，不因 unknown 或 content_edit 请求确认。
+4. 删除 ports/policy.py、策略工厂注册及多 provider 合并；将已有 action_restriction 的有效限制语义迁到 JSON `deployment.denied_actions`。
+   未设置或空列表表示不限制，未知或重复动作启动时报错；validator 直接校验整个序列，违反限制时零注入并返回明确原因。
+   删除旧 `policy_providers` 字段并明确报错；describe 展示部署限制，任务不能覆盖。配置版本和示例同步更新。
+5. 删除 needs-confirmation、confirm、确认记录及恢复分支，同步更新 facade、状态归约和客户端。
+   不新增 trusted-local/restricted 两套模式或审批扩展框架。连接鉴权和传输访问控制按 S1 的新契约实现并持续验证。
+6. 保留执行锁、重复执行保护和部分回执：序列首个失败即停止，结果不确定或部分送达不能自动重放整个序列。
+   环境 stale 可在预算内重新观察提案；参数错误、能力缺失与执行失败分别给出明确原因。
+7. 删除 Decision 后同步改造 Qwen pending proposal 的终结通知：未执行、已执行、部分执行都反馈真实结果，
+   不伪造 Receipt，不让模型历史继续等待已结束提案。
+8. 在 TaskStateReducer 集中实现文档定义的 validation/stale/execution/assertion 映射：只有 stale/retryable validation
+   和 recoverable assertion failure 消耗 max_retries；prepare/recheck 失败不消耗 max_steps，接受并准备执行的 sequence 才消耗 max_steps。
+9. 空 assertions 允许注册：完整送达后只在 provider 的 done 结束时归约为 delivered-unverified；done 不能替代断言成功，
+   未送达、部分送达或不确定送达不得进入该终态。所有 public response、Qwen feedback、快捷键和应用启动入口同步处理。
 
-`gui_run` 只接受：
+**验收**：普通点击、输入、快捷键无语义确认；无效坐标、焦点变化及目标消失时零注入；
+done 顺序、失败短路、重复调用、步骤/重试预算和 Qwen 反馈均有行为回归。
+显式动作限制有效，默认配置无需策略；证据不充分时不得 completed；五类失败的状态、预算与零注入语义符合契约；空断言工具结果不误报 completed。
 
-- `describe`
-- `run`
-- `status`
-- `confirm`
-- `reset`
+**建议拆分**：validator 替换 Gate 并更新执行入口 → 删除任务权限/确认及静态限制迁移 → 清理模型反馈与所有调用方。内部校验值只保存实际动作依赖，不要求复刻 Guard 的字段与对象结构。诊断 execute 必须调用同一执行入口并重新校验，不能复用过期的 validate 结果。
 
-公开状态只有 `running`、`needs-confirmation`、`retrying`、`completed`、`failed`。
+## S3：收敛运行态、记录与按需诊断
 
-`gui_diagnostic` 提供 `describe`、`observe`、`propose`、`decide`、`execute`、`evaluate`、`trace`，
-用于调试、审计和 benchmark，不作为普通调用方的工作流 API。
+**主要入口**：`core/store.py`、`core/ledger.py`、`core/audit.py`、`core/audit_recorder.py`、
+`core/transaction_recorder.py`、`core/task_repository.py`、`core/task_state.py`、`core/orchestrator.py`、
+`core/audit_models.py`、`audit_cli.py`、`facade.py`。
 
-## 扩展方式
+1. 以 TaskRepository 收敛为唯一运行态所有者：删除 decision/guard 及其引用索引，保留任务、提案、观察、回执、结果、去重与 provider 终结标记；逐项验证索引必要性，合并可由同一记录取得的重复字段。
+   TaskStateReducer 保留纯状态归约职责，状态只由一个入口写回；执行、去重、status 不从审计存储反查运行态。
+2. 启用审计时只保存必要任务信息、提案、实际回执、最终断言和关联事件；保留部分执行与失败原因。
+3. 截图、原始模型输出、详细树及完整证据材料仅在诊断启用时落盘。关闭诊断后，不返回无法解析的持久化引用。
+4. 删除 TransactionRecorder 中仅承担“双写/透传”的职责，由编排更新运行态，再通过一个可选记录入口输出必要事件。
+   合并重复记录和序列化路径；常规错误只记录原因码、阶段、关联提案和必要明细，完整归因对象按诊断需要生成。若 recorder 删除后仍有独立职责，迁入相应所有者，不搬成同名包装。
+5. 仅支持当前持久化格式。对象引用保持可用，敏感配置仍脱敏，不删除用户已有审计文件。
+6. 将现有 audit 目录配置替换为 `recording.audit`、`recording.diagnostic`、directory、retention_days、max_gib；默认均关闭，diagnostic 必须依赖 audit。
+   根据这两个开关注册或不注册 gui_diagnostic，并分别实现“关闭记录”“仅审计”“审计加诊断”的持久化范围和引用生命周期。运行态对象的内存寻址不要求写磁盘。
+   ObjectStore/EventLedger 只保留当前记录与查询需要，不另外建设事件溯源或持久化任务恢复框架。
+7. 明确 reset 清理任务、去重和模型会话的范围；进程重启不自动重放未决动作。记录失败不能触发已经送达动作的再次执行，应独立报告诊断不可用。
 
-- **新合成器**：实现 `ports/compositor.py`，在 desktop backend 中组装，并添加 canonical fixture 测试。
-- **新桌面环境**：新增完整 `DesktopBackend`；快捷键、应用目录和启动事务随 backend 提供，不进入 Core。
-- **新执行器**：实现 `ports/executor.py`；只返回实际执行事实，不判断业务成功。
-- **新模型**：实现 `ports/proposal.py` 并注册 provider；每次产生一个 Proposal，可包含有序动作序列。
+**验收**：关闭审计仍能完成任务；开启审计能定位失败动作和断言；诊断关闭不落盘大对象或逐动作 Guard；
+诊断开启可 trace 当前记录，重复执行保护不依赖磁盘存储；关闭记录不返回 trace 引用，仅审计不注册诊断工具，reset 和进程退出后内存引用均失效。
 
-## Proposal 动作序列实现
+**建议拆分**：运行态读取脱离审计 → 删除重复索引和事务透传层 → 可选持久化与精简归因 → reset/记录失败/模型反馈回归。检查关闭记录、仅审计、开启诊断三种配置的行为与引用有效性。
 
-- `ActionProposal.actions` 是非空有序序列；`action` 保留为首动作兼容视图，旧单动作输入会规范化为
-  长度为一的序列。
-- `PolicyDecision`、语义策略与用户确认以整个 Proposal 为单位。Core 为需要环境依赖的原子动作保存
-  有序 Guard，并在首次注入前统一重检，避免部分执行后才发现 Proposal 已失效。
-- Core 依次把原子动作交给现有执行器。动作间不调用 provider、不 capture 新 observation；首个失败会
-  截断余下序列。Proposal 级 `ExecutionReceipt` 保存 `executed_actions` 和 `action_receipts`，trace 与
-  持久审计沿用统一对象序列化，无第二套审计格式。
-- 只有完整序列送达后才 capture observation、收集 Evidence 并评估 Assertion；任务步数按 Proposal
-  增长一次。失败序列保留部分执行事实，但不会进入成功评估。
-- Qwen parser 接受同一响应中的一个或多个 `tool_call`，保持模型顺序；prompt 允许模型按自身粒度返回
-  最小动作序列，但禁止把依赖前一步界面变化的动作预先打包。其他 provider 只需返回相同领域对象。
-- schema revision 为 `2.1-p6`；序列结构、语义合并、Guard、短路执行、原子回执和多 tool-call 解析均有
-  自动回归覆盖。
-- **新证据源**：实现 `ports/evidence.py`，声明标准 fact path，并覆盖 unknown、conflict 和过期证据。
+## S4：依赖、配置与使用入口收敛
 
-扩展不得增加第二套公开状态、错误码 registry 或平台条件分支。未知 provider、重复注册和无效配置必须
-在启动时失败。
+**范围**：`pyproject.toml`、`config/`、`client_env.sh`、`langchain_settings/`、
+中英文 README、`src/mcp_autogui/langchain/`、部署脚本及手工验收文档。
 
-## P5 真实环境回归
+1. 核对 import 后，把 LangChain/Google 等示例客户端依赖移到 optional extras，删除无实际调用的依赖。
+   核心服务在未安装 extras 时能启动；示例能力在安装 extras 后可用。
+2. 中英文 README 使用同一 JSON 配置、当前任务格式和 MCP 工具边界，删除权限覆盖及旧环境配置示例。
+3. 同步部署、smoke、客户端和手工指南，确保正常任务只需使用 gui_run 生命周期接口。
+4. gui_run 只保留 describe / run / status / reset；describe 显示 transport auth 模式、静态动作限制和 recording 模式，不泄漏秘密。
+   gui_diagnostic 使用 describe / observe / propose / prepare / execute / evaluate / trace；
+   删除 decide、confirm 和旧别名，诊断执行仍经过同一校验与执行链。
+5. 更新评分卡与验收要求，移除“unknown 默认确认”等旧目标；优先记录实际成功率、误报完成、
+   人工介入和成本，避免以新增抽象层数评价架构。
 
-代码边界收敛后，发布前仍需完成真实 Treeland/Deepin 回归：
+**验收**：最小安装可启动服务；示例可运行；代码、配置、describe、README 和部署脚本一致；
+无需要用户填写 permissions 或 policy_overrides 才能执行普通任务的示例。
 
-1. 安装服务证书到系统信任库，通过 HTTPS 调用实际 MCP 入口。
-2. 运行 `autoui-smoke`，确认 tree、provider 和 `gui_run(describe)` 均可用。
-3. 按 `manual-test-guide.md` 执行 V2-01～V2-17，并保存必要 trace 与 artifact 引用。
-4. 将证书、代理、桌面会话或外部服务问题记为环境阻塞；领域失败按 ReasonCode 与 Attribution 归因。
+## S5：回归与交付
 
-## 文档维护
+1. 运行全量自动测试，覆盖 Core 边界、协议、provider、桌面事务、证据验证、Qwen、审计与配置。
+2. 运行 smoke，按更新后的手工指南完成 S0 任务集；对照记录成功率、人工介入、模型调用数和耗时。
+3. 验证异常场景：目标变化、越界、无效参数、不支持的动作、部分执行、重复调用、过早 done、空 assertions、证据不足、provider 不可用，以及 retry/step 预算耗尽。
+4. 检查删除项：生产代码与当前示例没有旧兼容后端、动作首项别名、任务权限字段、通用策略框架或确认分支。
+   不因搜索到历史说明而恢复兼容代码。
+5. 在发布前明确包 SemVer 是否与架构版本绑定：若绑定，包版本为 `2.2.0`；若不绑定，选择符合现有发布序列的版本并在 README 与 changelog 说明。
+   领域 schema `2`、运行 revision `2.2` 与 JSON 配置版本仍必须一致；文档记录必要的破坏性变化，不提供旧协议迁移层。
 
-- 架构文档只描述稳定设计，不记录实施进度。
-- 本文只维护当前实现、阅读入口、扩展方式和发布前待办。
-- 逐提交改动、排障过程和中间方案由 Git 历史承担。
+**完成条件**：自动回归通过、真实任务有记录、核心功能无退化、普通操作无逐步权限审查、
+显式动作限制与诊断仍可用、文档和配置可直接使用；S0 能力矩阵逐项对照，无第二套执行链和状态权威来源。
+任何未测项明确列出，不标记为通过。
+
+## 验证命令与进度记录
+
+按改动范围运行相关测试，每阶段结束更新此文档的状态；S5 再运行全量测试。
+纯文档修改只检查差异和链接，不冒充运行时验证。
+
+```bash
+uv run --with pytest pytest -q
+uv run autoui-smoke --config config/mcp-autoui.json
+uv run treeland-autogui-mcp --config config/mcp-autoui.json
+```
+
+每阶段记录：完成 commit、主要删除/变更、验证命令与结果、真实环境未测项。
+环境缺失与实现失败分别记录；旧 P0–P20 的实施过程通过 Git 历史查阅，不继续混入 v2.2 待办。
