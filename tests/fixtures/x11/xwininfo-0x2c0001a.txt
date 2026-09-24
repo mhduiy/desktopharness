@@ -1,0 +1,22 @@
+xwininfo: Window id: 0x2c0001a "org.deepin.dde-shell"
+
+  Absolute upper-left X:  740
+  Absolute upper-left Y:  460
+  Relative upper-left X:  740
+  Relative upper-left Y:  460
+  Width: 440
+  Height: 160
+  Depth: 32
+  Visual: 0x6e
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x2c00006 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsUnMapped
+  Override Redirect State: no
+  Corners:  +740+460  -740+460  -740-460  +740-460
+  -geometry 440x160+740+460

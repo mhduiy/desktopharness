@@ -1,0 +1,22 @@
+xwininfo: Window id: 0x440000a "DDE Clipboard"
+
+  Absolute upper-left X:  1270
+  Absolute upper-left Y:  10
+  Relative upper-left X:  1270
+  Relative upper-left Y:  10
+  Width: 640
+  Height: 1012
+  Depth: 32
+  Visual: 0x6e
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x4400006 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsUnMapped
+  Override Redirect State: no
+  Corners:  +1270+10  -10+10  -10-58  +1270-58
+  -geometry 640x1012-10+10

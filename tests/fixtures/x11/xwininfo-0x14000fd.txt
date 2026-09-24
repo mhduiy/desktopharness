@@ -1,0 +1,22 @@
+xwininfo: Window id: 0x14000fd "KWin"
+
+  Absolute upper-left X:  0
+  Absolute upper-left Y:  0
+  Relative upper-left X:  0
+  Relative upper-left Y:  0
+  Width: 160
+  Height: 160
+  Depth: 24
+  Visual: 0x21
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x14000fa (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsUnMapped
+  Override Redirect State: no
+  Corners:  +0+0  -1760+0  -1760-920  +0-920
+  -geometry 160x160+0+0

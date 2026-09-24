@@ -1,0 +1,7 @@
+_NET_WM_NAME(UTF8_STRING) = "org.deepin.ds.dock"
+WM_NAME(STRING) = "org.deepin.ds.dock"
+WM_CLASS(STRING) = "dde-shell/dock", "org.deepin.dde-shell"
+_NET_WM_STATE(ATOM) = 
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_DOCK, _NET_WM_WINDOW_TYPE_NORMAL
+_NET_WM_DESKTOP(CARDINAL) = 4294967295
+_NET_FRAME_EXTENTS:  not found.

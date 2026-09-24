@@ -1,0 +1,147 @@
+### xrandr
+Screen 0: minimum 320 x 200, current 1920 x 1080, maximum 15360 x 8640
+VGA-0 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 527mm x 296mm
+   1920x1080     60.00*+
+   1680x1050     59.88  
+   1600x900      75.11    60.00  
+   1280x1024     75.02    70.24    60.02  
+   1440x900      59.90  
+   1366x768      59.79  
+   1280x800      59.91  
+   1152x864      75.00  
+   1280x720      60.00  
+   1024x768      75.03    70.07    60.00  
+   800x600       72.19    75.00    60.32  
+   640x480       75.00    72.81    59.94  
+HDMI-A-0 disconnected (normal left inverted right x axis y axis)
+HDMI-A-1 disconnected (normal left inverted right x axis y axis)
+### stacking
+_NET_CLIENT_LIST_STACKING(WINDOW): window id # 0x4200007, 0x5a00014, 0x6a0000a, 0x2c00014
+### active
+_NET_ACTIVE_WINDOW(WINDOW): window id # 0x6a0000a
+### cursor
+X=931
+Y=643
+SCREEN=0
+WINDOW=111149066
+### root-children
+
+xwininfo: Window id: 0x131 (the root window) (has no name)
+
+  Root window id: 0x131 (the root window) (has no name)
+  Parent window id: 0x0 (none)
+     96 children:
+     0x4800016 "Qt Clipboard Requestor Window — 小U同学": ()  3x3+0+0  +0+0
+     0x580000a "Qt Clipboard Requestor Window": ()  3x3+0+0  +0+0
+     0x5a0002d "Qt Clipboard Requestor Window — 控制中心": ()  3x3+0+0  +0+0
+     0x2c000b0 "Qt Clipboard Requestor Window": ()  3x3+0+0  +0+0
+     0x6a0006e "Qt Clipboard Requestor Window — 终端": ()  3x3+0+0  +0+0
+     0x4200018 "Qt Clipboard Requestor Window": ()  3x3+0+0  +0+0
+     0x2c000ae "dde-shell/launchpad": ("dde-shell" "org.deepin.dde-shell")  10x10+10+542  +10+542
+     0x5a00013 "控制中心": ()  1x1+0+0  +0+0
+     0x5a00005 "Qt Selection Owner for dde-control-center": ()  3x3+0+0  +0+0
+     0x6a00009 "终端": ()  1x1+0+0  +0+0
+     0x6a00005 "Qt Selection Owner for deepin-terminal": ()  3x3+0+0  +0+0
+     0x2c00081 "dde-shell/paneltooltip": ("dde-shell" "org.deepin.dde-shell")  10x10+356+996  +356+996
+     0x14000ff "KWin": ("kwin_x11" "kwin")  160x160+0+0  +0+0
+     0x14000fd "KWin": ("kwin_x11" "kwin")  160x160+0+0  +0+0
+### window 0x4200007
+_NET_WM_NAME(UTF8_STRING) = "桌面"
+WM_NAME(COMPOUND_TEXT) = "桌面"
+WM_CLASS(STRING) = "dde-shell/desktop", "org.deepin.dde-shell"
+_NET_WM_STATE(ATOM) = 
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_DESKTOP, _NET_WM_WINDOW_TYPE_NORMAL
+_NET_WM_DESKTOP(CARDINAL) = 4294967295
+_NET_FRAME_EXTENTS:  not found.
+  Absolute upper-left X:  0
+  Absolute upper-left Y:  0
+  Relative upper-left X:  0
+  Relative upper-left Y:  0
+  Width: 1920
+  Height: 1080
+  Depth: 32
+  Visual: 0x6e
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x4200006 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsViewable
+### window 0x5a00014
+_NET_WM_NAME(UTF8_STRING) = "控制中心"
+WM_NAME(STRING) = 
+WM_CLASS(STRING) = "dde-control-center", "dde-control-center"
+_NET_WM_STATE(ATOM) = 
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+  Absolute upper-left X:  560
+  Absolute upper-left Y:  240
+  Relative upper-left X:  0
+  Relative upper-left Y:  0
+  Width: 800
+  Height: 600
+  Depth: 32
+  Visual: 0x6e
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x5a00010 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsViewable
+### window 0x6a0000a
+_NET_WM_NAME(UTF8_STRING) = "uos@uos-PC: ~/Desktop - 终端"
+WM_NAME(COMPOUND_TEXT) = "uos@uos-PC: ~/Desktop - 终端"
+WM_CLASS(STRING) = "deepin-terminal", "deepin-terminal"
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_FOCUSED
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+  Absolute upper-left X:  0
+  Absolute upper-left Y:  0
+  Relative upper-left X:  0
+  Relative upper-left Y:  0
+  Width: 1920
+  Height: 1032
+  Depth: 32
+  Visual: 0x6e
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x6a00006 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsViewable
+### window 0x2c00014
+_NET_WM_NAME(UTF8_STRING) = "org.deepin.ds.dock"
+WM_NAME(STRING) = "org.deepin.ds.dock"
+WM_CLASS(STRING) = "dde-shell/dock", "org.deepin.dde-shell"
+_NET_WM_STATE(ATOM) = 
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_DOCK, _NET_WM_WINDOW_TYPE_NORMAL
+_NET_WM_DESKTOP(CARDINAL) = 4294967295
+_NET_FRAME_EXTENTS:  not found.
+  Absolute upper-left X:  0
+  Absolute upper-left Y:  1032
+  Relative upper-left X:  0
+  Relative upper-left Y:  0
+  Width: 1920
+  Height: 48
+  Depth: 32
+  Visual: 0x6e
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x2c00006 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsViewable

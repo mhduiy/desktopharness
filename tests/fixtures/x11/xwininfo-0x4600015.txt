@@ -1,0 +1,22 @@
+xwininfo: Window id: 0x4600015 " (failure in conversion from UTF8_STRING to ANSI_X3.4-1968)"
+
+  Absolute upper-left X:  700
+  Absolute upper-left Y:  165
+  Relative upper-left X:  700
+  Relative upper-left Y:  165
+  Width: 520
+  Height: 750
+  Depth: 24
+  Visual: 0xe6
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x4600014 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsUnMapped
+  Override Redirect State: no
+  Corners:  +700+165  -700+165  -700-165  +700-165
+  -geometry 520x750+700+165
