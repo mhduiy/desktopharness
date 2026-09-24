@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None):
         mcp_main,
         desktop_backend_kind=server_config.desktop_backend,
         proposal_provider_config=server_config.proposal_provider,
-        policy_provider_config=server_config.policy_providers,
+        denied_actions=server_config.deployment_denied_actions,
         evidence_provider_config=server_config.evidence_providers,
         audit_config=server_config.audit,
         effective_config=effective_config,

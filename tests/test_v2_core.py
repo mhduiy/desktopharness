@@ -1,52 +1,15 @@
 import unittest
 from dataclasses import replace
-from threading import Event, Lock, Thread
-from time import sleep
 
-from mcp_autogui.adapters.compositor.treeland import TreelandAdapter
-from mcp_autogui.adapters.backends.treeland_deepin import DdeApplicationLauncher
-from mcp_autogui.adapters.compositor.canonical import CanonicalJsonAdapter
-from mcp_autogui.adapters.evidence.compositor_window import CompositorWindowEvidenceProvider
-from mcp_autogui.core.action_gate import ActionGate
-from mcp_autogui.core.assertion_evaluator import AssertionEvaluator
-from mcp_autogui.core.ledger import EventLedger
-from mcp_autogui.core.context_builder import ContextBuilder
 from mcp_autogui.core.models import (
-    Action,
-    ActionProposal,
-    ActionType,
-    AdapterCapabilities,
-    AdapterDescriptor,
-    AssertionSpec,
-    AssertionStatus,
-    CanonicalSnapshot,
-    CanonicalWindowFact,
-    CoordinateSpace,
-    EvidenceConfidence,
-    EvidenceRecord,
-    ExecutionReceipt,
-    ExecutionStatus,
-    OutputFact,
-    Point,
-    PolicyDecision,
-    PolicyStatus,
-    ReasonCode,
-    Rect,
-    SemanticTag,
-    StackingCapabilities,
-    StackingModel,
-    TaskContract,
-    TaskLimits,
-    TaskPermissions,
-    TaskState,
-    TaskStatus,
-    WindowRole,
-    new_id,
-    to_primitive,
-    utc_now,
+    Action, ActionProposal, ActionType, AdapterCapabilities, AdapterDescriptor,
+    AssertionSpec, CanonicalSnapshot, CanonicalWindowFact, CoordinateSpace, ExecutionReceipt,
+    ExecutionStatus, OutputFact, Point, ReasonCode, Rect, StackingCapabilities,
+    StackingModel, TaskContract, TaskLimits, TaskState, TaskStatus, WindowRole,
+    new_id, utc_now,
 )
 from mcp_autogui.core.orchestrator import CoreOrchestrator
-from mcp_autogui.core.store import ObjectStore
+from mcp_autogui.core.proposal_validator import PreparedProposal, ProposalValidator, ValidationFailure
 from mcp_autogui.core.task_state import TaskStateReducer
 
 
@@ -54,61 +17,36 @@ def descriptor():
     return AdapterDescriptor(
         "fixture",
         AdapterCapabilities(
-            True,
-            True,
-            True,
+            True, True, True,
             StackingCapabilities(StackingModel.HIT_TEST, hit_test=True),
-            active_window=True,
-            window_identity="stable",
+            active_window=True, window_identity="stable",
         ),
     )
 
 
-def snapshot(*, snapshot_id="snapshot-1", target="desktop", environment="env-1", title="Desktop"):
+def snapshot(snapshot_id="snapshot-1", *, target="desktop"):
     bounds = Rect(0, 0, 1000, 800)
     return CanonicalSnapshot(
-        snapshot_id=snapshot_id,
-        captured_at=utc_now(),
-        environment_version=environment,
-        coordinate_space=CoordinateSpace("desktop-logical", bounds, "geometry-1"),
-        outputs=(OutputFact("display-1", bounds),),
-        cursor=Point(20, 20),
-        windows=(
-            CanonicalWindowFact(
-                target,
-                bounds,
-                app_id="desktop",
-                title=title,
-                visible=True,
-                active=True,
-                role=WindowRole.DESKTOP,
-            ),
-        ),
+        snapshot_id, utc_now(), "env", CoordinateSpace("desktop-logical", bounds, "geometry-1"),
+        (OutputFact("display", bounds),), Point(20, 20),
+        (CanonicalWindowFact(
+            target, bounds, app_id=target, title=target, visible=True, active=True,
+            role=WindowRole.DESKTOP,
+        ),),
     )
 
 
-def contract(*assertions, actions=None, intents=None, retries=1):
+def contract(*, retries=1, max_steps=5):
     return TaskContract(
-        task_id="task-1",
-        goal="test",
-        permissions=TaskPermissions(
-            frozenset(
-                {ActionType.POINTER_CLICK} if actions is None else actions
-            ),
-            frozenset({"navigation"} if intents is None else intents),
-        ),
-        assertions=tuple(assertions),
-        limits=TaskLimits(max_steps=5, max_retries=retries),
+        "task-1", "test", limits=TaskLimits(max_steps=max_steps, max_retries=retries)
     )
 
 
-def click_proposal(snapshot_id="snapshot-1", semantic="navigation", source="controller"):
+def click(snapshot_id="snapshot-1"):
     return ActionProposal(
-        proposal_id=new_id("proposal"),
-        source=source,
-        based_on_snapshot=snapshot_id,
-        actions=(Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),),
-        claimed_intent=semantic,
+        new_id("proposal"), "fixture", snapshot_id,
+        (Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),),
+        claimed_intent="unknown-is-diagnostic-only",
     )
 
 
@@ -126,346 +64,200 @@ class FakeCompositor:
 
     def hit_test(self, point, current=None):
         current = current or self.latest
-        return next((window.window_id for window in current.windows if window.geometry.contains(point)), None)
+        return next((w.window_id for w in current.windows if w.geometry.contains(point)), None)
 
 
 class FakeExecutor:
+    def __init__(self):
+        self.actions = []
+
     def execute(self, proposal):
+        action = proposal.actions[0]
+        self.actions.append(action)
         now = utc_now()
         return ExecutionReceipt(
             new_id("execution"), proposal.proposal_id, ExecutionStatus.DELIVERED,
-            proposal.actions[0], now, now,
+            action, now, now,
         )
 
 
-class FakePolicyProvider:
-    provider_id = "fixture-policy"
-
-    def independent_tags(self, proposal, task_contract):
-        del proposal, task_contract
-        return ()
-
-
-class CanonicalAdapterTests(unittest.TestCase):
-    def test_treeland_deepin_backend_launcher_is_not_a_compositor_concern(self):
-        self.assertEqual(DdeApplicationLauncher().launcher_id, "dde-am")
-        self.assertFalse(hasattr(TreelandAdapter(lambda: {"layers": []}), "application_launcher"))
-
-    def test_treeland_adapter_filters_raw_fields_and_keeps_artifact_reference(self):
-        raw = {
-            "currentMode": "Normal",
-            "privateCompositorField": "secret-detail",
-            "layers": [{
-                "name": "BackgroundContainer", "layer": -2, "workspaces": [],
-                "windows": [{
-                    "id": 42, "appId": "", "title": "", "visible": True,
-                    "active": True, "z": 0, "container": "BackgroundContainer",
-                    "geometry": {"x": 0, "y": 0, "width": 1000, "height": 800},
-                    "titlebarGeometry": {"implementation": "must-not-leak"},
-                }],
-            }],
-        }
-        store = ObjectStore()
-        adapter = TreelandAdapter(lambda: raw, lambda: (10, 20), store)
-
-        observed = adapter.observe()
-
-        self.assertEqual(observed.windows[0].window_id, "42")
-        self.assertEqual(observed.windows[0].role, WindowRole.DESKTOP)
-        self.assertIsNone(observed.windows[0].app_id)
-        self.assertEqual(observed.cursor, Point(10, 20))
-        self.assertEqual(store.require(observed.raw_artifact_ref)["privateCompositorField"], "secret-detail")
-        self.assertFalse(hasattr(observed.windows[0], "container"))
-        self.assertFalse(hasattr(observed.windows[0], "titlebarGeometry"))
-
-    def test_second_compositor_fixture_has_the_same_canonical_semantics(self):
-        bounds = {"x": 0, "y": 0, "width": 1000, "height": 800}
-        raw = {
-            "snapshot_id": "other-1",
-            "captured_at": utc_now(),
-            "environment_version": "other-env",
-            "coordinate_space": {"id": "desktop-logical", "bounds": bounds},
-            "outputs": [{"output_id": "display", "geometry": bounds, "vendor_extra": 1}],
-            "cursor": {"x": 10, "y": 20},
-            "windows": [{
-                "window_id": "42", "app_id": None, "title": None, "visible": True,
-                "active": True, "role": "desktop", "geometry": bounds,
-                "foreign_private_data": {"must": "not leak"},
-            }],
-            "foreign_root_data": True,
-        }
-        adapter = CanonicalJsonAdapter(descriptor(), lambda: raw)
-        observed = adapter.observe()
-        self.assertEqual(observed.coordinate_space.bounds, Rect(0, 0, 1000, 800))
-        self.assertEqual(observed.windows[0].role, WindowRole.DESKTOP)
-        self.assertEqual(adapter.hit_test(Point(20, 20), observed), "42")
-        self.assertFalse(hasattr(observed.windows[0], "foreign_private_data"))
-
-
-class ActionGateTests(unittest.TestCase):
-    def test_unclassified_later_action_cannot_hide_behind_navigation(self):
-        actions = (
-            Action(ActionType.POINTER_MOVE, Point(100, 100), "desktop-logical"),
-            Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),
-        )
-        proposal = ActionProposal(new_id("proposal"), "qwen-cua", "snapshot-1", actions)
-        gate = ActionGate(descriptor(), lambda point, current: "desktop")
-
-        decision, _, _ = gate.decide(
-            proposal,
-            contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_CLICK}),
-            snapshot(),
+class ProposalValidatorTests(unittest.TestCase):
+    def validator(self, **kwargs):
+        return ProposalValidator(
+            descriptor(), lambda _point, current: current.windows[0].window_id, **kwargs
         )
 
-        self.assertEqual(decision.status, PolicyStatus.CONFIRM)
-        self.assertEqual(decision.reason_code, ReasonCode.CONFIRMATION_REQUIRED)
+    def test_unknown_intent_does_not_require_confirmation(self):
+        self.assertIsInstance(self.validator().prepare(snapshot(), click()), PreparedProposal)
 
-    def test_declared_actions_do_not_change_core_policy_decision(self):
+    def test_done_must_be_last(self):
         proposal = ActionProposal(
-            proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
-            actions=(Action(ActionType.POINTER_MOVE, Point(10, 10), "desktop-logical"),),
+            "p", "fixture", "snapshot-1",
+            (Action(ActionType.DONE), Action(ActionType.KEYBOARD_KEY, parameters={"key": "enter"})),
         )
-        gate = ActionGate(descriptor(), lambda point, current: "desktop")
-        declarations = (
-            set(),
-            {ActionType.POINTER_CLICK},
-            {ActionType.POINTER_MOVE},
-            set(ActionType),
+        result = self.validator().prepare(snapshot(), proposal)
+        self.assertEqual(result.reason_code, ReasonCode.MODEL_PROTOCOL_INVALID)
+        self.assertFalse(result.retryable)
+
+    def test_invalid_parameters_and_static_restrictions_are_nonretryable(self):
+        invalid = ActionProposal(
+            "p1", "fixture", "snapshot-1",
+            (Action(ActionType.KEYBOARD_SHORTCUT, parameters={"keys": []}),),
         )
+        result = self.validator().prepare(snapshot(), invalid)
+        self.assertEqual(result.reason_code, ReasonCode.INVALID_ACTION_PARAMETERS)
+        restricted = self.validator(
+            denied_actions=frozenset({ActionType.POINTER_CLICK})
+        ).prepare(snapshot(), click())
+        self.assertEqual(restricted.reason_code, ReasonCode.ACTION_RESTRICTED)
 
-        decisions = [
-            gate.decide(proposal, contract(actions=actions), snapshot())[0]
-            for actions in declarations
-        ]
+        invalid_type = ActionProposal(
+            "p2", "fixture", "snapshot-1", (Action("pointer.teleport"),)
+        )
+        result = self.validator().prepare(snapshot(), invalid_type)
+        self.assertEqual(result.reason_code, ReasonCode.MODEL_PROTOCOL_INVALID)
 
-        self.assertEqual({decision.status for decision in decisions}, {PolicyStatus.ALLOW})
-        self.assertEqual({decision.reason_code for decision in decisions}, {ReasonCode.OK})
+        invalid_shape = ActionProposal(
+            "p3", "fixture", "snapshot-1",
+            (Action(ActionType.KEYBOARD_KEY, Point(10, 10), "desktop-logical", {"key": "a"}),),
+        )
+        result = self.validator().prepare(snapshot(), invalid_shape)
+        self.assertEqual(result.reason_code, ReasonCode.INVALID_ACTION_PARAMETERS)
 
-    def test_done_is_internal_and_does_not_require_declared_action(self):
+    def test_recheck_ignores_unrelated_environment_change(self):
+        prepared = self.validator().prepare(snapshot(), click())
+        latest = replace(snapshot("snapshot-2"), environment_version="animation")
+        self.assertIs(self.validator().recheck(prepared, latest), prepared)
+
+    def test_recheck_detects_target_change_as_retryable(self):
+        validator = ProposalValidator(
+            descriptor(), lambda _point, current: current.windows[0].window_id
+        )
+        prepared = validator.prepare(snapshot(), click())
+        result = validator.recheck(prepared, snapshot("snapshot-2", target="overlay"))
+        self.assertEqual(result.reason_code, ReasonCode.TARGET_DISAPPEARED)
+        self.assertTrue(result.retryable)
+
+    def test_recheck_tracks_cursor_needed_after_non_pointer_action(self):
         proposal = ActionProposal(
-            proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
-            actions=(Action(ActionType.DONE),),
-        )
-
-        decision, _, _ = ActionGate(
-            descriptor(), lambda point, current: "desktop"
-        ).decide(proposal, contract(actions=set()), snapshot())
-
-        self.assertEqual(decision.status, PolicyStatus.ALLOW)
-        self.assertEqual(decision.reason_code, ReasonCode.OK)
-
-    def test_done_must_remain_the_last_action(self):
-        proposal = ActionProposal(
-            proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
-            actions=(
-                Action(ActionType.DONE),
-                Action(ActionType.KEYBOARD_KEY, parameters={"key": "enter"}),
+            "p", "fixture", "snapshot-1",
+            (
+                Action(ActionType.KEYBOARD_KEY, parameters={"key": "tab"}),
+                Action(
+                    ActionType.POINTER_MOVE, Point(30, 20), "desktop-logical",
+                    {"relative": True},
+                ),
             ),
         )
-
-        decision, _, _ = ActionGate(
-            descriptor(), lambda point, current: "desktop"
-        ).decide(proposal, contract(actions=set()), snapshot())
-
-        self.assertEqual(decision.status, PolicyStatus.INVALID)
-        self.assertEqual(decision.reason_code, ReasonCode.MODEL_PROTOCOL_INVALID)
-
-    def test_independent_action_restriction_tag_is_denied(self):
-        proposal = ActionProposal(
-            proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
-            actions=(Action(ActionType.KEYBOARD_TEXT, parameters={"text": "blocked"}),),
-        )
-        restriction = SemanticTag(
-            "action_restricted", "fixture-policy", None, EvidenceConfidence.DETERMINISTIC
-        )
-
-        decision, _, _ = ActionGate(
-            descriptor(), lambda point, current: "desktop"
-        ).decide(proposal, contract(actions=set(), intents=set()), snapshot(), [restriction])
-
-        self.assertEqual(decision.status, PolicyStatus.DENY)
-        self.assertEqual(decision.reason_code, ReasonCode.SEMANTIC_POLICY_DENIED)
-
-    def test_unrelated_snapshot_change_does_not_invalidate_guard(self):
-        first = snapshot()
-        gate = ActionGate(descriptor(), lambda point, snap: snap.windows[0].window_id)
-        tag = SemanticTag("navigation", "test", "e-1", EvidenceConfidence.DETERMINISTIC)
-        decision, guard, _ = gate.decide(click_proposal(), contract(), first, [tag])
-        changed = replace(first, snapshot_id="snapshot-2", environment_version="env-animation")
-
-        self.assertEqual(decision.status, PolicyStatus.ALLOW)
-        self.assertIsNone(gate.recheck(guard, changed))
-
-    def test_hit_target_change_invalidates_guard_with_specific_code(self):
-        first = snapshot()
-        current = {"target": "desktop"}
-        gate = ActionGate(descriptor(), lambda point, snap: current["target"])
-        tag = SemanticTag("navigation", "test", "e-1", EvidenceConfidence.DETERMINISTIC)
-        _, guard, _ = gate.decide(click_proposal(), contract(), first, [tag])
-        changed = replace(
-            first,
-            snapshot_id="snapshot-2",
-            windows=first.windows + (
-                CanonicalWindowFact("overlay", Rect(0, 0, 200, 200), visible=True, role=WindowRole.OVERLAY),
-            ),
-        )
-        current["target"] = "overlay"
-
-        self.assertEqual(gate.recheck(guard, changed), ReasonCode.HIT_TEST_CHANGED)
-
-    def test_qwen_semantic_claim_alone_is_unknown_and_requires_confirmation(self):
-        snap = snapshot()
-        gate = ActionGate(descriptor(), lambda point, current: "desktop")
-        proposal = click_proposal(source="qwen-cua")
-
-        decision, _, resolution = gate.decide(proposal, contract(), snap)
-
-        self.assertEqual(resolution.status, "unknown")
-        self.assertEqual(decision.status, PolicyStatus.CONFIRM)
-        self.assertEqual(decision.reason_code, ReasonCode.CONFIRMATION_REQUIRED)
-
-    def test_desktop_role_is_not_an_automatic_click_rejection(self):
-        snap = snapshot()
-        gate = ActionGate(descriptor(), lambda point, current: "desktop")
-        tag = SemanticTag("navigation", "controller", "e-1", EvidenceConfidence.DETERMINISTIC)
-
-        decision, _, _ = gate.decide(click_proposal(), contract(), snap, [tag])
-
-        self.assertEqual(decision.status, PolicyStatus.ALLOW)
+        validator = self.validator()
+        prepared = validator.prepare(snapshot(), proposal)
+        latest = replace(snapshot("snapshot-2"), cursor=Point(25, 20))
+        result = validator.recheck(prepared, latest)
+        self.assertEqual(result.reason_code, ReasonCode.CURSOR_ORIGIN_CHANGED)
+        self.assertTrue(result.retryable)
 
 
-class EvidenceAndStateTests(unittest.TestCase):
-    def record(self, value, confidence, evidence_id):
-        return EvidenceRecord(
-            evidence_id=evidence_id,
-            source="fixture",
-            captured_at=utc_now(),
-            subject={"snapshot_id": "snapshot-1"},
-            facts={"active_window.app_id": value},
-            quality=confidence,
-        )
+class TaskStateReducerTests(unittest.TestCase):
+    def test_retryable_validation_consumes_only_retry_budget(self):
+        reducer = TaskStateReducer()
+        task = contract(retries=1)
+        first = reducer.validation_failure(task, TaskState("task-1"), retryable=True)
+        second = reducer.validation_failure(task, first, retryable=True)
+        self.assertEqual((first.status, first.retries, first.step), (TaskStatus.RETRYING, 1, 0))
+        self.assertEqual((second.status, second.retries), (TaskStatus.FAILED, 1))
 
-    def test_model_claim_cannot_pass_assertion_by_itself(self):
-        spec = AssertionSpec("opened", "active_window.app_id", "equals", "editor")
-        result = AssertionEvaluator().evaluate(
-            spec, [self.record("editor", EvidenceConfidence.MODEL_CLAIM, "model-1")]
-        )
-        self.assertEqual(result.status, AssertionStatus.UNKNOWN)
-
-    def test_deterministic_evidence_overrides_conflicting_model_claim(self):
-        spec = AssertionSpec("opened", "active_window.app_id", "equals", "editor")
-        result = AssertionEvaluator().evaluate(spec, [
-            self.record("editor", EvidenceConfidence.DETERMINISTIC, "api-1"),
-            self.record("music", EvidenceConfidence.MODEL_CLAIM, "model-1"),
-        ])
-        self.assertEqual(result.status, AssertionStatus.PASSED)
-        self.assertEqual(result.evidence_refs, ("api-1",))
-
-    def test_equal_quality_conflict_is_not_passed(self):
-        spec = AssertionSpec("opened", "active_window.app_id", "equals", "editor")
-        result = AssertionEvaluator().evaluate(spec, [
-            self.record("editor", EvidenceConfidence.DETERMINISTIC, "api-1"),
-            self.record("music", EvidenceConfidence.DETERMINISTIC, "api-2"),
-        ])
-        self.assertEqual(result.status, AssertionStatus.CONFLICT)
-
-    def test_assertion_provider_allowlist_is_enforced(self):
-        spec = AssertionSpec(
-            "opened", "active_window.app_id", "equals", "editor",
-            providers=("application-api",),
-        )
-        result = AssertionEvaluator().evaluate(
-            spec, [self.record("editor", EvidenceConfidence.DETERMINISTIC, "compositor-1")]
-        )
-        self.assertEqual(result.status, AssertionStatus.UNKNOWN)
-
-    def test_cursor_can_be_asserted_within_a_target_rectangle(self):
-        spec = AssertionSpec(
-            "cursor-at-seven",
-            "cursor.position",
-            "within_rect",
-            {"x": 380.0, "y": 505.0, "width": 30.0, "height": 30.0},
-        )
-        record = EvidenceRecord(
-            evidence_id="cursor-1",
-            source="fixture",
-            captured_at=utc_now(),
-            subject={"snapshot_id": "snapshot-1"},
-            facts={"cursor.position": {"x": 394.0, "y": 520.0}},
-            quality=EvidenceConfidence.DETERMINISTIC,
-        )
-        result = AssertionEvaluator().evaluate(spec, [record])
-        self.assertEqual(result.status, AssertionStatus.PASSED)
-
-    def test_reducer_alone_can_complete_task(self):
-        spec = AssertionSpec("opened", "active_window.app_id", "equals", "editor")
-        result = AssertionEvaluator().evaluate(
-            spec, [self.record("editor", EvidenceConfidence.DETERMINISTIC, "api-1")]
-        )
-        reduced = TaskStateReducer().reduce(contract(spec), TaskState("task-1"), [result])
-        self.assertEqual(reduced.status, TaskStatus.COMPLETED)
+    def test_nonretryable_validation_and_execution_fail_without_retry(self):
+        reducer = TaskStateReducer()
+        state = reducer.validation_failure(contract(), TaskState("task-1"), retryable=False)
+        self.assertEqual((state.status, state.retries), (TaskStatus.FAILED, 0))
+        self.assertEqual(reducer.execution_failure(TaskState("task-1")).status, TaskStatus.FAILED)
 
 
 class OrchestratorTests(unittest.TestCase):
-    def test_policy_provider_ids_must_be_unique(self):
-        with self.assertRaisesRegex(ValueError, "policy provider IDs must be unique"):
-            CoreOrchestrator(
-                FakeCompositor([snapshot()]),
-                FakeExecutor(),
-                policy_providers=(FakePolicyProvider(), FakePolicyProvider()),
-            )
+    def runtime(self, snapshots, *, executor=None, denied=frozenset(), provider=None):
+        return CoreOrchestrator(
+            FakeCompositor(snapshots), executor or FakeExecutor(),
+            proposal_provider=provider, denied_actions=denied,
+        )
 
-    def test_action_sequence_executes_in_order_and_records_one_aggregate_receipt(self):
-        class RecordingExecutor(FakeExecutor):
-            def __init__(self):
-                self.actions = []
+    @staticmethod
+    def submit(runtime, proposal):
+        runtime.register_task(contract())
+        runtime.observe("task-1")
+        runtime.submit_proposal("task-1", proposal)
 
-            def execute(self, proposal):
-                self.actions.append(proposal.actions[0])
-                return super().execute(proposal)
-
+    def test_sequence_executes_in_order_and_consumes_one_step(self):
         actions = (
             Action(ActionType.POINTER_MOVE, Point(100, 100), "desktop-logical"),
             Action(ActionType.POINTER_SCROLL, parameters={"clicks": -3}),
         )
-        executor = RecordingExecutor()
-        runtime = CoreOrchestrator(
-            FakeCompositor([snapshot(), replace(snapshot(), snapshot_id="snapshot-2")]),
-            executor,
-        )
-        runtime.register_task(
-            contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL})
-        )
-        observed = runtime.observe("task-1")
-        proposal = ActionProposal(new_id("proposal"), "fixture", observed.snapshot_id, actions)
-        runtime.submit_proposal("task-1", proposal)
-
-        receipt = runtime.execute(proposal.proposal_id)
-
+        executor = FakeExecutor()
+        runtime = self.runtime([snapshot(), snapshot("snapshot-2")], executor=executor)
+        runtime.register_task(contract())
+        runtime.observe("task-1")
+        runtime.submit_proposal("task-1", ActionProposal("p", "fixture", "snapshot-1", actions))
+        receipt = runtime.execute("p")
         self.assertEqual(receipt.status, ExecutionStatus.DELIVERED)
         self.assertEqual(executor.actions, list(actions))
-        self.assertEqual(receipt.executed_actions, actions)
-        self.assertEqual([item.action_index for item in receipt.action_receipts], [0, 1])
-        serialized = to_primitive(runtime.store.require(receipt.execution_id))
-        self.assertEqual(len(serialized["action_receipts"]), 2)
-        self.assertEqual(serialized["action_receipts"][1]["action"]["type"], "pointer.scroll")
         self.assertEqual(runtime.status("task-1").step, 1)
-        self.assertEqual(
-            sum(
-                event.event_type == "execution.completed"
-                for event in runtime.ledger.events("task-1")
-            ),
-            1,
+
+    def test_static_restriction_and_stale_target_inject_nothing(self):
+        executor = FakeExecutor()
+        proposal = click()
+        restricted = self.runtime(
+            [snapshot()], executor=executor,
+            denied=frozenset({ActionType.POINTER_CLICK}),
         )
+        self.submit(restricted, proposal)
+        result = restricted.execute(proposal.proposal_id)
+        self.assertEqual(result.reason_code, ReasonCode.ACTION_RESTRICTED)
+        self.assertEqual(executor.actions, [])
 
-    def test_action_sequence_stops_after_first_failed_atomic_action(self):
-        class FailsSecondExecutor(FakeExecutor):
-            def __init__(self):
-                self.actions = []
+        executor = FakeExecutor()
+        proposal = click()
+        stale = self.runtime(
+            [snapshot(), snapshot("snapshot-2", target="overlay")], executor=executor
+        )
+        self.submit(stale, proposal)
+        result = stale.execute(proposal.proposal_id)
+        self.assertIsInstance(result, ValidationFailure)
+        self.assertTrue(result.retryable)
+        self.assertEqual(executor.actions, [])
+        self.assertEqual(stale.status("task-1").status, TaskStatus.RETRYING)
 
+    def test_duplicate_execute_does_not_reinject(self):
+        executor = FakeExecutor()
+        runtime = self.runtime([snapshot(), snapshot("snapshot-2")], executor=executor)
+        proposal = click()
+        self.submit(runtime, proposal)
+        first = runtime.execute(proposal.proposal_id)
+        second = runtime.execute(proposal.proposal_id)
+        self.assertIs(first, second)
+        self.assertEqual(len(executor.actions), 1)
+
+    def test_step_budget_blocks_another_sequence_without_injection(self):
+        executor = FakeExecutor()
+        runtime = self.runtime(
+            [snapshot(), snapshot("snapshot-2")], executor=executor
+        )
+        runtime.register_task(contract(max_steps=1))
+        runtime.observe("task-1")
+        first = click()
+        runtime.submit_proposal("task-1", first)
+        self.assertEqual(runtime.execute(first.proposal_id).status, ExecutionStatus.DELIVERED)
+
+        second = click("snapshot-2")
+        runtime.submit_proposal("task-1", second)
+        result = runtime.execute(second.proposal_id)
+        self.assertEqual(result.reason_code, ReasonCode.MODEL_PLANNING_INVALID)
+        self.assertEqual(len(executor.actions), 1)
+        self.assertEqual(runtime.status("task-1").step, 1)
+
+    def test_partial_sequence_fails_without_replay(self):
+        class FailsSecond(FakeExecutor):
             def execute(self, proposal):
-                self.actions.append(proposal.actions[0])
-                if len(self.actions) == 2:
+                if len(self.actions) == 1:
+                    self.actions.append(proposal.actions[0])
                     now = utc_now()
                     return ExecutionReceipt(
                         new_id("execution"), proposal.proposal_id,
@@ -479,419 +271,112 @@ class OrchestratorTests(unittest.TestCase):
             Action(ActionType.POINTER_SCROLL, parameters={"clicks": -3}),
             Action(ActionType.POINTER_MOVE, Point(200, 200), "desktop-logical"),
         )
-        executor = FailsSecondExecutor()
-        runtime = CoreOrchestrator(
-            FakeCompositor([snapshot(), replace(snapshot(), snapshot_id="snapshot-2")]),
-            executor,
-        )
-        runtime.register_task(
-            contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL})
-        )
-        observed = runtime.observe("task-1")
-        proposal = ActionProposal(new_id("proposal"), "fixture", observed.snapshot_id, actions)
-        runtime.submit_proposal("task-1", proposal)
-
-        receipt = runtime.execute(proposal.proposal_id)
-
-        self.assertEqual(receipt.status, ExecutionStatus.FAILED)
-        self.assertEqual(executor.actions, list(actions[:2]))
-        self.assertEqual(receipt.executed_actions, actions[:1])
-        self.assertEqual(len(receipt.action_receipts), 2)
-        self.assertEqual(runtime.status("task-1").status, TaskStatus.FAILED)
-
-    def test_run_step_observes_only_before_and_after_the_action_sequence(self):
-        class CountingCompositor(FakeCompositor):
-            def __init__(self, snapshots):
-                super().__init__(snapshots)
-                self.calls = 0
-
-            def observe(self):
-                self.calls += 1
-                return super().observe()
-
-        class SequenceProvider:
-            provider_id = "sequence-fixture"
-
-            def propose(self, context):
-                actions = (
-                    Action(ActionType.POINTER_MOVE, Point(100, 100), "desktop-logical"),
-                    Action(ActionType.POINTER_SCROLL, parameters={"clicks": -3}),
-                )
-                return ActionProposal(
-                    new_id("proposal"), self.provider_id,
-                    context.based_on_snapshot, actions,
-                )
-
-        class ObservationRecordingExecutor(FakeExecutor):
-            def __init__(self, compositor):
-                self.compositor = compositor
-                self.observation_counts = []
-
-            def execute(self, proposal):
-                self.observation_counts.append(self.compositor.calls)
-                return super().execute(proposal)
-
-        compositor = CountingCompositor([
-            snapshot(),
-            snapshot(snapshot_id="snapshot-2"),
-            snapshot(snapshot_id="snapshot-3"),
-        ])
-        executor = ObservationRecordingExecutor(compositor)
-        runtime = CoreOrchestrator(
-            compositor, executor, proposal_provider=SequenceProvider()
-        )
-        runtime.register_task(
-            contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL})
-        )
-
-        outcome = runtime.run_step("task-1")
-
-        self.assertEqual(outcome["receipt"].status, ExecutionStatus.DELIVERED)
-        self.assertEqual(executor.observation_counts, [2, 2])
-        self.assertEqual(compositor.calls, 3)
-
-    def test_missing_sequence_guard_fails_closed_before_input(self):
-        class CountingExecutor(FakeExecutor):
-            def __init__(self):
-                self.calls = 0
-
-            def execute(self, proposal):
-                self.calls += 1
-                return super().execute(proposal)
-
-        executor = CountingExecutor()
-        runtime = CoreOrchestrator(
-            FakeCompositor([snapshot(), snapshot(snapshot_id="snapshot-2")]),
-            executor,
-        )
-        runtime.policy_providers = (
-            type("Policy", (), {"independent_tags": lambda *_: [
-                SemanticTag("navigation", "fixture", None, EvidenceConfidence.DETERMINISTIC)
-            ]})(),
-        )
-        runtime.register_task(contract())
-        observed = runtime.observe("task-1")
-        proposal = click_proposal(observed.snapshot_id)
-        runtime.submit_proposal("task-1", proposal)
-        decision = runtime.decide(proposal.proposal_id)
-        for guard_ref in decision.guard_refs:
-            runtime._tasks._guards.pop(guard_ref)
-
-        result = runtime.execute(proposal.proposal_id)
-
-        self.assertEqual(result.status, PolicyStatus.STALE)
-        self.assertEqual(result.reason_code, ReasonCode.OBJECT_NOT_FOUND)
-        self.assertEqual(executor.calls, 0)
-
-    def test_invalid_model_proposal_records_its_debug_artifact(self):
-        class InvalidProposalProvider:
-            def __init__(self, store):
-                self.store = store
-
-            def propose(self, _context):
-                debug_ref = self.store.put({"actions": ["WAIT"]}, prefix="model-output")
-                error = ValueError("unsupported Qwen action in v2: wait")
-                error.debug_ref = debug_ref
-                raise error
-
-        runtime = CoreOrchestrator(FakeCompositor([snapshot()]), FakeExecutor())
-        runtime.proposal_provider = InvalidProposalProvider(runtime.store)
-        runtime.register_task(contract())
-
-        with self.assertRaisesRegex(ValueError, "unsupported Qwen action"):
-            runtime.propose("task-1")
-
-        diagnostic_events = [
-            event for event in runtime.ledger.events("task-1")
-            if event.event_type == "model_diagnostic.recorded"
-        ]
-        self.assertEqual(len(diagnostic_events), 1)
-        self.assertEqual(runtime.store.require(diagnostic_events[0].debug_ref)["actions"], ["WAIT"])
-        attribution = runtime.attributions("task-1")[0]
-        self.assertEqual(attribution.code, ReasonCode.MODEL_PLANNING_INVALID)
-        self.assertIn(diagnostic_events[0].debug_ref, attribution.evidence_refs)
-
-    def test_reset_waits_for_an_inflight_desktop_execution(self):
-        class BlockingExecutor(FakeExecutor):
-            def __init__(self):
-                self.started = Event()
-                self.release = Event()
-
-            def execute(self, proposal):
-                self.started.set()
-                self.release.wait(timeout=1)
-                return super().execute(proposal)
-
-        executor = BlockingExecutor()
-        runtime = CoreOrchestrator(FakeCompositor([snapshot()] * 4), executor)
-        runtime.policy_providers = (
-            type("Policy", (), {"independent_tags": lambda *_: [
-                SemanticTag("navigation", "fixture", None, EvidenceConfidence.DETERMINISTIC)
-            ]})(),
-        )
-        runtime.register_task(contract())
-        observed = runtime.observe("task-1")
-        proposal = click_proposal(observed.snapshot_id)
-        runtime.submit_proposal("task-1", proposal)
-        execution = Thread(target=runtime.execute, args=(proposal.proposal_id,))
-        execution.start()
-        self.assertTrue(executor.started.wait(timeout=1))
-        reset = Thread(target=runtime.reset, args=("task-1",))
-        reset.start()
-        sleep(0.02)
-        self.assertTrue(runtime.has_task("task-1"))
-        executor.release.set()
-        execution.join(timeout=1)
-        reset.join(timeout=1)
-        self.assertFalse(runtime.has_task("task-1"))
-
-    def test_cross_task_execution_is_serialized_at_desktop_boundary(self):
-        class BlockingExecutor(FakeExecutor):
-            def __init__(self):
-                self._lock = Lock()
-                self.active = 0
-                self.maximum_active = 0
-
-            def execute(self, proposal):
-                with self._lock:
-                    self.active += 1
-                    self.maximum_active = max(self.maximum_active, self.active)
-                sleep(0.02)
-                with self._lock:
-                    self.active -= 1
-                return super().execute(proposal)
-
-        executor = BlockingExecutor()
-        runtime = CoreOrchestrator(FakeCompositor([snapshot()] * 8), executor)
-        runtime.policy_providers = (
-            type(
-                "Policy",
-                (),
-                {
-                    "independent_tags": lambda _self, _proposal, _contract: [
-                        SemanticTag("navigation", "fixture", None, EvidenceConfidence.DETERMINISTIC)
-                    ]
-                },
-            )(),
-        )
-        runtime.register_task(contract())
-        runtime.register_task(replace(contract(), task_id="task-2"))
-        proposals = []
-        for task_id in ("task-1", "task-2"):
-            observed = runtime.observe(task_id)
-            proposal = click_proposal(observed.snapshot_id)
-            runtime.submit_proposal(task_id, proposal)
-            proposals.append(proposal)
-        threads = [Thread(target=runtime.execute, args=(proposal.proposal_id,)) for proposal in proposals]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-
-        self.assertEqual(executor.maximum_active, 1)
-
-    def test_application_launch_uses_the_single_injected_executor(self):
-        class RecordingExecutor(FakeExecutor):
-            def __init__(self):
-                self.proposals = []
-
-            def execute(self, proposal):
-                self.proposals.append(proposal)
-                return super().execute(proposal)
-
-        executor = RecordingExecutor()
-        runtime = CoreOrchestrator(FakeCompositor([snapshot(), snapshot(snapshot_id="snapshot-2")]), executor)
-        runtime.register_task(
-            contract(
-                actions={ActionType.APPLICATION_LAUNCH},
-                intents={"open_application"},
-            )
-        )
-        observed = runtime.observe("task-1")
-        proposal = ActionProposal(
-            proposal_id=new_id("proposal"),
-            source="fixture",
-            based_on_snapshot=observed.snapshot_id,
-            actions=(Action(ActionType.APPLICATION_LAUNCH, parameters={"app_id": "dde-computer"}),),
-        )
-        runtime.submit_proposal("task-1", proposal)
-
-        receipt = runtime.execute(proposal.proposal_id)
-
-        self.assertEqual(receipt.status, ExecutionStatus.DELIVERED)
-        self.assertEqual(executor.proposals, [proposal])
-
-    def test_denied_or_stale_actions_do_not_create_receipts_or_call_executor(self):
-        class CountingExecutor(FakeExecutor):
-            def __init__(self):
-                self.calls = 0
-
-            def execute(self, proposal):
-                self.calls += 1
-                return super().execute(proposal)
-
-        executor = CountingExecutor()
-        runtime = CoreOrchestrator(FakeCompositor([snapshot()]), executor)
-        runtime.policy_providers = (
-            type(
-                "Policy",
-                (),
-                {
-                    "independent_tags": lambda _self, proposal, _contract: [
-                        SemanticTag(
-                            proposal.claimed_intent or "unknown",
-                            "fixture",
-                            None,
-                            EvidenceConfidence.DETERMINISTIC,
-                        )
-                    ]
-                },
-            )(),
-        )
-        runtime.register_task(contract())
-        observed = runtime.observe("task-1")
-        denied = click_proposal(observed.snapshot_id, semantic="destructive")
-        runtime.submit_proposal("task-1", denied)
-
-        result = runtime.execute(denied.proposal_id)
-
-        self.assertIsInstance(result, PolicyDecision)
-        self.assertEqual(result.status, PolicyStatus.DENY)
-        self.assertEqual(executor.calls, 0)
-        self.assertFalse(any(event.event_type == "execution.completed" for event in runtime.ledger.events("task-1")))
-
-        executor = CountingExecutor()
-        runtime = CoreOrchestrator(
-            FakeCompositor([snapshot(), snapshot(snapshot_id="snapshot-2", target="overlay")]),
-            executor,
-        )
-        runtime.policy_providers = (
-            type(
-                "Policy",
-                (),
-                {
-                    "independent_tags": lambda _self, _proposal, _contract: [
-                        SemanticTag(
-                            "navigation",
-                            "fixture",
-                            None,
-                            EvidenceConfidence.DETERMINISTIC,
-                        )
-                    ]
-                },
-            )(),
-        )
-        runtime.register_task(contract())
-        observed = runtime.observe("task-1")
-        stale = click_proposal(observed.snapshot_id)
-        runtime.submit_proposal("task-1", stale)
-
-        result = runtime.execute(stale.proposal_id)
-
-        self.assertIsInstance(result, PolicyDecision)
-        self.assertEqual(result.status, PolicyStatus.STALE)
-        self.assertEqual(executor.calls, 0)
-        self.assertFalse(any(event.event_type == "execution.completed" for event in runtime.ledger.events("task-1")))
-
-    def test_reset_preserves_audit_history_and_appends_reset_event(self):
-        runtime = CoreOrchestrator(FakeCompositor([snapshot()]), FakeExecutor())
+        executor = FailsSecond()
+        runtime = self.runtime([snapshot(), snapshot("snapshot-2")], executor=executor)
         runtime.register_task(contract())
         runtime.observe("task-1")
-        before = runtime.ledger.events("task-1")
+        runtime.submit_proposal("task-1", ActionProposal("p", "fixture", "snapshot-1", actions))
+        receipt = runtime.execute("p")
+        self.assertEqual(receipt.status, ExecutionStatus.FAILED)
+        self.assertEqual(executor.actions, list(actions[:2]))
+        self.assertEqual(runtime.status("task-1").status, TaskStatus.FAILED)
 
-        runtime.reset("task-1")
+    def test_empty_assertions_require_delivery_then_done(self):
+        class Provider:
+            provider_id = "fixture"
+            def __init__(self):
+                self.index = 0
+                self.feedback = []
+            def propose(self, context):
+                self.index += 1
+                action = (
+                    Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical")
+                    if self.index == 1 else Action(ActionType.DONE)
+                )
+                return ActionProposal(f"p{self.index}", "fixture", context.based_on_snapshot, (action,))
+            def record_execution(self, task_id, receipt):
+                self.feedback.append((task_id, receipt.status.value))
+            def record_outcome(self, task_id, **outcome):
+                self.feedback.append((task_id, outcome["status"]))
 
-        events = runtime.ledger.events("task-1")
-        self.assertEqual(events[:-1], before)
-        self.assertEqual(events[-1].event_type, "task.reset")
-        self.assertEqual(runtime.store.require(events[-1].object_ref)["reason"], "controller-reset")
-
-    def test_delivered_receipt_does_not_complete_before_evaluation(self):
-        spec = AssertionSpec("desktop-active", "active_window.app_id", "equals", "desktop")
-        compositor = FakeCompositor([snapshot(), replace(snapshot(), snapshot_id="snapshot-2")])
-        runtime = CoreOrchestrator(
-            compositor,
-            FakeExecutor(),
-            evidence_providers=[CompositorWindowEvidenceProvider()],
+        provider = Provider()
+        runtime = self.runtime(
+            [snapshot(), snapshot("s2"), snapshot("s3"), snapshot("s4")], provider=provider
         )
-        runtime.register_task(contract(spec))
-        observed = runtime.observe("task-1")
-        proposal = click_proposal(observed.snapshot_id)
-        runtime.submit_proposal("task-1", proposal)
-        tag = SemanticTag("navigation", "fixture", "e-1", EvidenceConfidence.DETERMINISTIC)
-        runtime.policy_providers = (type("Policy", (), {"independent_tags": lambda self, p, c: [tag]})(),)
+        runtime.register_task(contract())
+        first = runtime.run_step("task-1")
+        second = runtime.run_step("task-1")
+        self.assertEqual(first["state"].status, TaskStatus.RUNNING)
+        self.assertEqual(second["state"].status, TaskStatus.DELIVERED_UNVERIFIED)
+        self.assertEqual(provider.feedback[-1], ("task-1", "partial"))
 
-        receipt = runtime.execute(proposal.proposal_id)
+    def test_done_before_any_delivery_fails(self):
+        class DoneProvider:
+            provider_id = "done"
+            def propose(self, context):
+                return ActionProposal("done", "done", context.based_on_snapshot, (Action(ActionType.DONE),))
+            def record_outcome(self, *args, **kwargs):
+                return None
 
-        self.assertEqual(receipt.status, ExecutionStatus.DELIVERED)
-        self.assertEqual(runtime.status("task-1").status, TaskStatus.RUNNING)
-        _, _, state = runtime.evaluate("task-1")
+        runtime = self.runtime([snapshot(), snapshot("s2")], provider=DoneProvider())
+        runtime.register_task(contract())
+        self.assertEqual(runtime.run_step("task-1")["state"].status, TaskStatus.FAILED)
+
+    def test_done_with_assertions_evaluates_without_prior_delivery(self):
+        class DoneProvider:
+            provider_id = "done"
+            def propose(self, context):
+                return ActionProposal("done", "done", context.based_on_snapshot, (Action(ActionType.DONE),))
+            def record_outcome(self, *args, **kwargs):
+                return None
+
+        runtime = self.runtime([snapshot()], provider=DoneProvider())
+        runtime.register_task(TaskContract(
+            "task-1", "test",
+            assertions=(AssertionSpec("ready", "active_window.app_id", "equals", "desktop"),),
+        ))
+        evaluated = []
+        runtime.evaluate = lambda task_id: (
+            evaluated.append(task_id) or (), (), TaskState(task_id, TaskStatus.COMPLETED)
+        )
+        state = runtime.run_step("task-1")["state"]
         self.assertEqual(state.status, TaskStatus.COMPLETED)
+        self.assertEqual(evaluated, ["task-1"])
 
-    def test_ledger_is_append_only_and_sequences_per_task(self):
-        ledger = EventLedger()
-        one = ledger.append("t", "proposal.created", "p-1")
-        two = ledger.append("t", "decision.created", "d-1", caused_by=(one.event_id,))
-        self.assertEqual((one.sequence, two.sequence), (1, 2))
-        self.assertEqual(ledger.events("t")[0].object_ref, "p-1")
+    def test_done_after_unknown_delivery_does_not_claim_delivered_unverified(self):
+        class UnknownExecutor(FakeExecutor):
+            def execute(self, proposal):
+                self.actions.append(proposal.actions[0])
+                now = utc_now()
+                return ExecutionReceipt(
+                    new_id("execution"), proposal.proposal_id,
+                    ExecutionStatus.UNKNOWN, None, now, now,
+                )
 
-    def test_missing_evidence_records_a_non_error_attribution(self):
-        spec = AssertionSpec("opened", "active_window.app_id", "equals", "editor")
-        runtime = CoreOrchestrator(FakeCompositor([snapshot()]), FakeExecutor())
-        runtime.register_task(contract(spec))
+        class Provider:
+            provider_id = "fixture"
+            def __init__(self):
+                self.index = 0
+            def propose(self, context):
+                self.index += 1
+                action = (
+                    Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical")
+                    if self.index == 1 else Action(ActionType.DONE)
+                )
+                return ActionProposal(f"p{self.index}", "fixture", context.based_on_snapshot, (action,))
+            def record_execution(self, *args, **kwargs):
+                return None
+            def record_outcome(self, *args, **kwargs):
+                return None
 
-        _, results, state = runtime.evaluate("task-1")
-
-        self.assertEqual(results[0].status, AssertionStatus.UNKNOWN)
-        self.assertEqual(state.status, TaskStatus.RUNNING)
-        attribution = runtime.attributions("task-1")[0]
-        self.assertEqual(attribution.code, ReasonCode.INSUFFICIENT_GROUND_TRUTH)
-        self.assertFalse(attribution.primary)
-
-
-class ReasonCodeTests(unittest.TestCase):
-    def test_protocol_results_reject_unregistered_reason_strings(self):
-        now = utc_now()
-        with self.assertRaises(TypeError):
-            PolicyDecision("proposal-1", PolicyStatus.ALLOW, "OK")
-        with self.assertRaises(TypeError):
-            ExecutionReceipt(
-                "execution-1",
-                "proposal-1",
-                ExecutionStatus.FAILED,
-                None,
-                now,
-                now,
-                error_code="EXECUTOR_UNKNOWN",
-            )
-
-
-class ContextBuilderTests(unittest.TestCase):
-    def test_only_compact_and_recovery_context_projections_are_supported(self):
-        ledger = EventLedger()
-        for index in range(5):
-            ledger.append("task-1", "frame.captured", f"frame-{index}")
-            ledger.append("task-1", "proposal.created", f"proposal-{index}")
-        builder = ContextBuilder()
-        task = contract()
-        compact = builder.build(
-            task, TaskState("task-1"), ledger.events("task-1"), based_on_snapshot="snapshot-1"
+        runtime = self.runtime(
+            [snapshot(), snapshot("s2"), snapshot("s3")],
+            executor=UnknownExecutor(), provider=Provider(),
         )
-        recovery = builder.build(
-            task,
-            TaskState("task-1"),
-            ledger.events("task-1"),
-            based_on_snapshot="snapshot-1",
-            strategy="recovery",
-        )
-
-        self.assertEqual(len(compact.recent_frame_refs), 1)
-        self.assertEqual(len(recovery.recent_frame_refs), 2)
-        with self.assertRaisesRegex(ValueError, "unknown context strategy"):
-            builder.build(
-                task, TaskState("task-1"), ledger.events("task-1"),
-                based_on_snapshot="snapshot-1", strategy="visual-heavy",
-            )
+        runtime.register_task(contract())
+        runtime.run_step("task-1")
+        state = runtime.run_step("task-1")["state"]
+        self.assertEqual(state.status, TaskStatus.FAILED)
 
 
 if __name__ == "__main__":

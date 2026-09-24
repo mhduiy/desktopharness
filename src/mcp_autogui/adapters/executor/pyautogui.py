@@ -7,6 +7,7 @@ from typing import Any
 
 from ...core.models import (
     ActionProposal,
+    Action,
     ActionType,
     ExecutionReceipt,
     ExecutionStatus,
@@ -34,6 +35,19 @@ class PyAutoGUIExecutor:
         self._platform_resolver = platform_resolver
         self._drag_handler = drag_handler
         self._application_handler = application_handler
+
+    def validate_action(self, action: Action) -> ReasonCode | None:
+        if action.type == ActionType.PLATFORM_INVOKE:
+            if self._platform_resolver is None:
+                return ReasonCode.CAPABILITY_UNAVAILABLE
+            capability = self._platform_resolver(
+                str(action.parameters.get("capability_id") or "")
+            )
+            if not capability or not capability.get("auto_invokable"):
+                return ReasonCode.CAPABILITY_UNAVAILABLE
+        if action.type == ActionType.APPLICATION_LAUNCH and self._application_handler is None:
+            return ReasonCode.CAPABILITY_UNAVAILABLE
+        return None
 
     def execute(self, proposal: ActionProposal) -> ExecutionReceipt:
         action = proposal.actions[0]

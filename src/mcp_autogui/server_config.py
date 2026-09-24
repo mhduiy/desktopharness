@@ -11,9 +11,9 @@ from typing import Any
 from .desktop_backend import DEFAULT_DESKTOP_BACKEND, available_desktop_backends
 from .provider_registry import (
     validate_evidence_provider,
-    validate_policy_provider,
     validate_proposal_provider,
 )
+from .core.transaction import ActionType
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,7 @@ class ServerConfig:
     transport_token_env: str | None
     desktop_backend: str
     proposal_provider: dict[str, Any]
-    policy_providers: dict[str, Any]
+    deployment_denied_actions: frozenset[ActionType]
     evidence_providers: dict[str, Any]
     audit: dict[str, Any]
 
@@ -44,7 +44,9 @@ class ServerConfig:
             },
             "desktop_backend": self.desktop_backend,
             "proposal_provider": provider,
-            "policy_providers": self.policy_providers,
+            "deployment": {
+                "denied_actions": sorted(item.value for item in self.deployment_denied_actions),
+            },
             "evidence_providers": self.evidence_providers,
             "audit": self.audit,
         }
@@ -64,7 +66,7 @@ def load_server_config(path: str | Path) -> ServerConfig:
         raw,
         {
             "schema_version", "transport", "desktop_backend", "proposal_provider",
-            "policy_providers", "evidence_providers", "audit",
+            "deployment", "evidence_providers", "audit",
         },
         "MCP config",
     )
@@ -106,13 +108,19 @@ def load_server_config(path: str | Path) -> ServerConfig:
     proposal_provider = _object(raw, "proposal_provider")
     validate_proposal_provider(proposal_provider, "proposal_provider")
 
-    policy_providers = _object(raw, "policy_providers", default={})
+    deployment = _object(raw, "deployment", default={})
+    _only_keys(deployment, {"denied_actions"}, "deployment")
+    denied_raw = deployment.get("denied_actions", [])
+    if not isinstance(denied_raw, list) or any(not isinstance(item, str) for item in denied_raw):
+        raise ValueError("deployment.denied_actions must be an array of action strings")
+    try:
+        denied = [ActionType(item) for item in denied_raw]
+    except ValueError as exc:
+        raise ValueError("deployment.denied_actions contains an unknown action") from exc
+    if len(denied) != len(set(denied)):
+        raise ValueError("deployment.denied_actions must not contain duplicates")
     evidence_providers = _object(raw, "evidence_providers", default={})
     audit = _object(raw, "audit", default={})
-    for provider_id, provider_config in policy_providers.items():
-        if not isinstance(provider_config, dict):
-            raise ValueError(f"policy_providers.{provider_id} must be an object")
-        validate_policy_provider(provider_id, provider_config, f"policy_providers.{provider_id}")
     for provider_id, provider_config in evidence_providers.items():
         if not isinstance(provider_config, dict):
             raise ValueError(f"evidence_providers.{provider_id} must be an object")
@@ -130,7 +138,7 @@ def load_server_config(path: str | Path) -> ServerConfig:
         transport_token_env=token_env,
         desktop_backend=backend_id,
         proposal_provider=proposal_provider,
-        policy_providers=policy_providers,
+        deployment_denied_actions=frozenset(denied),
         evidence_providers=evidence_providers,
         audit=audit,
     )

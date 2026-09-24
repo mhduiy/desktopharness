@@ -16,17 +16,16 @@ v2 公开调用流程为：
 
 1. `gui_run(operation="run", task_contract=...)`
 2. `gui_run(operation="status", task_id=...)`
-3. 需要确认时调用 `gui_run(operation="confirm", task_id=..., proposal_id=...)`
-4. `gui_run(operation="reset", task_id=...)`
+3. `gui_run(operation="reset", task_id=...)`
 
 正常响应只返回包含 `object_ref` 的紧凑信封；诊断时使用
-`gui_diagnostic` 的 `observe`、`propose`、`decide`、`execute`、`evaluate` 和 `trace`。
-默认策略在缺少独立语义证据时要求确认，模型给出的 `claimed_intent` 只作为 claim。
+`gui_diagnostic` 的 `observe`、`propose`、`prepare`、`execute`、`evaluate` 和 `trace`。
+模型给出的 `claimed_intent` 只作为诊断信息，不参与执行控制。
 `ExecutionReceipt.status=delivered` 只表示输入已注入，不表示应用响应或任务完成。
 
-`permissions.actions` 仅为协议兼容字段，不再是授权边界。Core 校验 Proposal
-结构、坐标、语义策略和 Guard，调用方无须预判模型会使用鼠标、键盘还是快捷键。
-确需限制原始动作的部署可显式启用可选 `action_restriction` policy provider。
+TaskContract 只包含目标、断言、预算和验证 profile。执行前由 `ProposalValidator`
+校验动作参数、坐标、能力、目标、焦点和桌面依赖。部署可通过
+`deployment.denied_actions` 可选限制 canonical action。
 
 参见 [v2 实现与扩展指南](docs/treeland-autoui-mcp-v2-implementation.md)
 和 [v2 设计](docs/treeland-autoui-mcp-v2-design.md)。
@@ -43,16 +42,15 @@ export CUA_MODEL_API_KEY=your-model-api-key   # 模型端点不校验时可省�
 旧 gui-mcp HTTP 后端、二进制/JSON 回退和 `CUA_BACKEND_*` 配置已不再支持。
 
 所有 Qwen 交互统一走 `gui_run` 工具；旧的 `qwen_cua_*` 工具已删除。内嵌
-后端通过 task contract 寻址，每轮只产出一个 canonical action：
+后端通过 task contract 寻址，每轮产出一个包含非空、有序 action sequence 的 canonical Proposal：
 
 1. `gui_run(operation="run", task_contract={"task_id": ..., "goal": ...,
-   "limits": {"max_steps": 5, "max_retries": 2},
-   "policy_overrides": {"unknown": "allow", "content_edit": "allow"}})`
+   "limits": {"max_steps": 5, "max_retries": 2}})`
    执行有界的单动作事务循环：
-   observe -> propose（Qwen）-> decide -> guard 重检 -> execute ->
+   observe -> propose（Qwen）-> prepare -> recheck -> execute ->
    evaluate -> 归约任务状态，直到任务阻塞或终止。
-2. 需要细粒度控制时使用 `gui_diagnostic`：`observe`、`propose`、`decide`、
-   `execute`、`evaluate`、`status`、`reset`、`trace`。
+2. 需要细粒度控制时使用 `gui_diagnostic`：`observe`、`propose`、`prepare`、
+   `execute`、`evaluate`、`trace`；`status` 和 `reset` 仍属于 `gui_run`。
    响应默认只返回对象引用；传 `diagnostic=true` 或使用 `trace` 展开
    存储对象，例如模型输出（`debug_ref`）、执行回执或断言结果。
 3. `gui_run(operation="reset", task_id=...)` 会重置运行时任务和内嵌
@@ -61,11 +59,8 @@ export CUA_MODEL_API_KEY=your-model-api-key   # 模型端点不校验时可省�
 原始动作限制默认关闭，只在配置中显式启用：
 
 ```json
-"policy_providers": {
-  "action_restriction": {
-    "enabled": true,
-    "denied_actions": ["keyboard.text", "keyboard.shortcut"]
-  }
+"deployment": {
+  "denied_actions": ["keyboard.text", "keyboard.shortcut"]
 }
 ```
 
@@ -80,8 +75,8 @@ export CUA_MODEL_API_KEY=your-model-api-key   # 模型端点不校验时可省�
 内嵌服务先保存待处理动作提案，只有收到本地实际执行结果后才更新正式 Qwen 历史。成功、部分执行、拒绝和失败都会显式反馈给同一 session，避免模型历史与真实桌面状态分叉。
 
 OmniParser 默认关闭；启用后仅作为 v2 的只读 Evidence/Grounding Provider，
-不会注册旧的直连执行接口。它产生概率性控件/文档证据，不能绕过 Proposal、
-PolicyDecision、Guard、Receipt 或 Assertion 流程：
+不会注册旧的直连执行接口。它产生概率性控件/文档证据，不能绕过 Proposal
+校验、Receipt 或 Assertion 流程：
 
 在 JSON 的 `evidence_providers.omniparser` 中设置 `enabled: true` 和 `endpoint` 即可启用。
 

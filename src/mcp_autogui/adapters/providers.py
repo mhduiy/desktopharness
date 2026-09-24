@@ -8,13 +8,11 @@ from ..provider_registry import (
     ProviderBuildContext,
     ProposalProviderRuntime,
     register_evidence_provider,
-    register_policy_provider,
     register_proposal_provider,
 )
 from ..qwen_backend import QwenBackendClient
 from .evidence import AtSpiEvidenceProvider, CompositorWindowEvidenceProvider, OmniParserEvidenceProvider
 from .proposal import QwenCUAProposalProvider
-from .policy import ActionRestrictionPolicyProvider
 
 
 def register_builtin_providers() -> None:
@@ -22,9 +20,6 @@ def register_builtin_providers() -> None:
     register_evidence_provider("compositor_window", _validate_enabled, _build_compositor_window)
     register_evidence_provider("atspi", _validate_enabled, _build_atspi)
     register_evidence_provider("omniparser", _validate_omniparser, _build_omniparser)
-    register_policy_provider(
-        "action_restriction", _validate_action_restriction, _build_action_restriction
-    )
 
 
 def _validate_qwen(config: dict[str, Any], location: str) -> None:
@@ -87,36 +82,6 @@ def _build_omniparser(config: dict[str, Any], context: ProviderBuildContext):
         return image
 
     return OmniParserEvidenceProvider(str(config["endpoint"]).strip(), capture_frame, context.store)
-
-
-def _validate_action_restriction(config: dict[str, Any], location: str) -> None:
-    from ..core.transaction import ActionType
-
-    _only_keys(config, {"enabled", "denied_actions"}, location)
-    _optional_bool(config, "enabled", location)
-    denied_actions = config.get("denied_actions", [])
-    if not isinstance(denied_actions, list) or any(
-        not isinstance(item, str) for item in denied_actions
-    ):
-        raise ValueError(f"{location}.denied_actions must be an array of action strings")
-    try:
-        normalized = [ActionType(item) for item in denied_actions]
-    except ValueError as exc:
-        raise ValueError(f"{location}.denied_actions contains an unknown action") from exc
-    if len(normalized) != len(set(normalized)):
-        raise ValueError(f"{location}.denied_actions must not contain duplicates")
-    if config.get("enabled", False) and not normalized:
-        raise ValueError(f"{location}.denied_actions must not be empty when enabled")
-
-
-def _build_action_restriction(config: dict[str, Any]):
-    from ..core.transaction import ActionType
-
-    if not config.get("enabled", False):
-        return None
-    return ActionRestrictionPolicyProvider(
-        frozenset(ActionType(item) for item in config["denied_actions"])
-    )
 
 
 def _only_keys(config: dict[str, Any], allowed: set[str], location: str) -> None:

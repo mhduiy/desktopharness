@@ -6,24 +6,23 @@ from typing import Any
 
 from .core.desktop import Point
 from .core.protocol import OperationFailure, ReasonCode, new_id, to_primitive
-from .core.task import AssertionSpec, TaskContract, TaskLimits, TaskPermissions, TaskStatus
+from .core.proposal_validator import ValidationFailure
+from .core.task import AssertionSpec, TaskContract, TaskLimits, TaskStatus
 from .core.transaction import (
     Action,
     ActionProposal,
     ActionType,
     ExecutionReceipt,
     ExecutionStatus,
-    PolicyDecision,
-    PolicyStatus,
 )
 from .core.orchestrator import CoreOrchestrator
 from .protocol_response import diagnostic_response, reduce_public_response
 from .runtime_description import RuntimeDescription
 
 
-_PUBLIC_OPERATIONS = frozenset({"describe", "run", "status", "confirm", "reset"})
+_PUBLIC_OPERATIONS = frozenset({"describe", "run", "status", "reset"})
 _DIAGNOSTIC_OPERATIONS = frozenset(
-    {"describe", "observe", "propose", "decide", "execute", "evaluate", "trace"}
+    {"describe", "observe", "propose", "prepare", "execute", "evaluate", "trace"}
 )
 
 
@@ -44,7 +43,7 @@ class AutoUIFacade:
                 normalized,
                 ReasonCode.UNSUPPORTED_OPERATION,
                 "unsupported public gui_run operation; use gui_diagnostic for controller internals",
-                "call-run-status-confirm-or-reset",
+                "call-run-status-or-reset",
             )
         try:
             return self._handle_public(normalized, **kwargs)
@@ -81,7 +80,7 @@ class AutoUIFacade:
                     "message": "unsupported gui_diagnostic operation",
                     "retry": False,
                     "required_action": (
-                        "call-describe-observe-propose-decide-execute-evaluate-or-trace"
+                        "call-describe-observe-propose-prepare-execute-evaluate-or-trace"
                     ),
                 },
             )
@@ -118,7 +117,6 @@ class AutoUIFacade:
         task_id: str = "",
         task_contract: dict[str, Any] | None = None,
         proposal_id: str = "",
-        confirmed: bool = False,
         strategy: str = "compact",
         max_iterations: int | None = None,
     ) -> dict[str, Any]:
@@ -130,25 +128,9 @@ class AutoUIFacade:
             )
 
         resolved_task = self._prepare_task(task_id, task_contract)
-        if operation == "confirm":
-            value = self.runtime.execute(proposal_id.strip(), confirmed=True)
-            if isinstance(value, PolicyDecision):
-                ref = self._last_object_ref(resolved_task, "decision.created")
-                error = retry = None
-            else:
-                ref = value.execution_id
-                error, retry = _execution_failure(value)
-            return reduce_public_response(
-                operation,
-                task_state=self.runtime.status(resolved_task).status.value,
-                object_ref=ref,
-                error=error,
-                retry=retry,
-            )
         if operation == "run":
             value = self.runtime.run(
                 resolved_task,
-                confirmed=confirmed,
                 strategy=strategy,
                 max_iterations=max_iterations,
             )
@@ -180,7 +162,6 @@ class AutoUIFacade:
         task_contract: dict[str, Any] | None = None,
         proposal: dict[str, Any] | None = None,
         proposal_id: str = "",
-        confirmed: bool = False,
         strategy: str = "compact",
         object_ref: str = "",
         max_iterations: int | None = None,
@@ -247,30 +228,25 @@ class AutoUIFacade:
                 value.proposal_id,
                 resolved_task,
             )
-        if operation == "decide":
-            value = self.runtime.decide(proposal_id.strip())
-            ref = self._last_object_ref(resolved_task, "decision.created")
-            return self._diagnostic_response(
-                operation,
-                _diagnostic_decision_status(value.status),
-                ref,
-                resolved_task,
-            )
-        if operation == "execute":
-            value = self.runtime.execute(proposal_id.strip(), confirmed=confirmed)
-            if isinstance(value, PolicyDecision):
-                ref = self._last_object_ref(resolved_task, "decision.created")
-                response = self._diagnostic_response(
+        if operation == "prepare":
+            value = self.runtime.prepare(proposal_id.strip())
+            if isinstance(value, ValidationFailure):
+                return diagnostic_response(
                     operation,
-                    _diagnostic_decision_status(value.status),
-                    ref,
-                    resolved_task,
+                    self.runtime.status(resolved_task).status.value,
+                    error=_validation_error(value),
+                    retry=_recovery_for(value.reason_code),
                 )
-                error, retry = _decision_failure(value)
-                if error is not None:
-                    response["error"] = error
-                    response["retry"] = retry
-                return response
+            return diagnostic_response(operation, TaskStatus.RUNNING.value)
+        if operation == "execute":
+            value = self.runtime.execute(proposal_id.strip())
+            if isinstance(value, ValidationFailure):
+                return diagnostic_response(
+                    operation,
+                    self.runtime.status(resolved_task).status.value,
+                    error=_validation_error(value),
+                    retry=_recovery_for(value.reason_code),
+                )
             response = self._diagnostic_response(
                 operation,
                 _diagnostic_receipt_status(value),
@@ -376,19 +352,7 @@ class AutoUIFacade:
         )
 
 
-def _diagnostic_decision_status(status: PolicyStatus) -> str:
-    return {
-        PolicyStatus.ALLOW: TaskStatus.RUNNING.value,
-        PolicyStatus.CONFIRM: TaskStatus.NEEDS_CONFIRMATION.value,
-        PolicyStatus.DENY: TaskStatus.FAILED.value,
-        PolicyStatus.INVALID: TaskStatus.FAILED.value,
-        PolicyStatus.STALE: TaskStatus.RUNNING.value,
-    }[status]
-
-
 def _diagnostic_receipt_status(receipt: ExecutionReceipt) -> str:
-    if receipt.error_code == ReasonCode.CONFIRMATION_REQUIRED:
-        return TaskStatus.NEEDS_CONFIRMATION.value
     if receipt.status == ExecutionStatus.DELIVERED:
         return TaskStatus.RUNNING.value
     return TaskStatus.FAILED.value
@@ -397,7 +361,7 @@ def _diagnostic_receipt_status(receipt: ExecutionReceipt) -> str:
 def _execution_failure(
     receipt: ExecutionReceipt,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    if receipt.error_code is None or receipt.error_code == ReasonCode.CONFIRMATION_REQUIRED:
+    if receipt.error_code is None:
         return None, None
     recovery = _recovery_for(receipt.error_code)
     return (
@@ -410,31 +374,22 @@ def _execution_failure(
     )
 
 
-def _decision_failure(
-    decision: PolicyDecision,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Expose stale guard recovery in the diagnostic response."""
-    if decision.status != PolicyStatus.STALE or decision.reason_code is None:
-        return None, None
-    recovery = _recovery_for(decision.reason_code)
-    return (
-        {
-            "code": decision.reason_code,
-            "message": "The proposed action guard is no longer valid",
-            **recovery,
-        },
-        recovery,
-    )
+def _validation_error(failure: ValidationFailure) -> dict[str, Any]:
+    recovery = _recovery_for(failure.reason_code)
+    return {
+        "code": failure.reason_code,
+        "message": "The proposed action failed validation before input injection",
+        **recovery,
+    }
 
 
 def parse_task_contract(value: dict[str, Any]) -> TaskContract:
     if not isinstance(value, dict):
         raise ValueError("task_contract must be an object")
-    permissions = value.get("permissions") or {}
-    actions = frozenset(
-        ActionType(str(item))
-        for item in permissions.get("actions", [])
-    )
+    allowed = {"task_id", "goal", "assertions", "limits", "verification_profile"}
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise ValueError(f"task_contract has unknown fields: {', '.join(unknown)}")
     assertions = tuple(
         AssertionSpec(
             assertion_id=str(item["assertion_id"]),
@@ -452,15 +407,9 @@ def parse_task_contract(value: dict[str, Any]) -> TaskContract:
     return TaskContract(
         task_id=str(value.get("task_id") or "").strip(),
         goal=str(value.get("goal") or "").strip(),
-        permissions=TaskPermissions(
-            actions,
-            frozenset(str(item) for item in permissions.get("semantic_intents", [])),
-        ),
         assertions=assertions,
         limits=TaskLimits(int(limits.get("max_steps", 10)), int(limits.get("max_retries", 1))),
-        policy_profile=str(value.get("policy_profile") or "desktop-safe-default"),
         verification_profile=str(value.get("verification_profile") or "default"),
-        policy_overrides=dict(value.get("policy_overrides") or {}),
     )
 
 
@@ -481,8 +430,8 @@ def _recovery_for(code: ReasonCode) -> dict[str, Any]:
         return {"retry": True, "required_action": "capture-new-frame"}
     if code == ReasonCode.CAPABILITY_UNAVAILABLE:
         return {"retry": False, "required_action": "install-or-configure-provider"}
-    if code in {ReasonCode.MECHANICAL_PERMISSION_DENIED, ReasonCode.SEMANTIC_POLICY_DENIED}:
-        return {"retry": False, "required_action": "review-task-policy"}
+    if code in {ReasonCode.ACTION_RESTRICTED, ReasonCode.INVALID_ACTION_PARAMETERS}:
+        return {"retry": False, "required_action": "correct-proposal"}
     return {"retry": True, "required_action": "retry-execution"}
 
 

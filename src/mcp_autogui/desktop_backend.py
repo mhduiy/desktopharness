@@ -9,11 +9,11 @@ from typing import Any, Protocol
 from .core.desktop import CanonicalSnapshot
 from .core.store import ObjectStore
 from .core.task import TaskContract, TaskState
-from .core.transaction import ActionProposal, ExecutionReceipt, PolicyDecision
+from .core.proposal_validator import ValidationFailure
+from .core.transaction import ActionProposal, ExecutionReceipt
 from .ports.compositor import CompositorPort
 from .ports.executor import ActionExecutor
 from .ports.frame import FrameProvider
-from .ports.policy import PolicyProvider
 
 
 DEFAULT_DESKTOP_BACKEND = "treeland-deepin"
@@ -44,7 +44,7 @@ ProposalBuilder = Callable[[CanonicalSnapshot], ActionProposal]
 class DesktopTransactionResult:
     snapshot: CanonicalSnapshot
     proposal: ActionProposal
-    decision: PolicyDecision
+    validation: ValidationFailure | None
     receipt: ExecutionReceipt | None
     state: TaskState
 
@@ -57,6 +57,8 @@ class DesktopTransactionRunner(Protocol):
     ) -> DesktopTransactionResult: ...
 
     async def evaluate(self, task_id: str) -> TaskState: ...
+
+    async def mark_delivered_unverified(self, task_id: str) -> TaskState: ...
 
 
 DesktopToolsFactory = Callable[[DesktopTransactionRunner, RunBlocking], DesktopTools]
@@ -71,7 +73,6 @@ class DesktopBackend:
     executor: ActionExecutor
     frame_provider: FrameProvider
     capture_observation: Callable[[], tuple[bytes, tuple[int, int], object]]
-    policy_providers: tuple[PolicyProvider, ...]
     create_tools: DesktopToolsFactory
 
 

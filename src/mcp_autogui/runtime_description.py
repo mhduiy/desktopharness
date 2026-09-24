@@ -12,7 +12,6 @@ from .ports.compositor import CompositorPort
 from .ports.evidence import EvidenceProvider
 from .ports.executor import ActionExecutor
 from .ports.frame import FrameProvider
-from .ports.policy import PolicyProvider
 from .ports.proposal import ProposalProvider
 
 
@@ -30,9 +29,8 @@ class RuntimeDescription:
         executor: ActionExecutor | None,
         proposal_provider: ProposalProvider | None,
         frame_provider: FrameProvider | None,
-        policy_providers: Sequence[PolicyProvider],
         evidence_providers: Sequence[EvidenceProvider],
-        policy_profiles: Iterable[str],
+        denied_actions: Iterable[object],
         context_strategies: Iterable[str],
         effective_config: Mapping[str, Any] | None = None,
     ) -> RuntimeDescription:
@@ -52,9 +50,6 @@ class RuntimeDescription:
             "providers": {
                 "proposal": _component_id(proposal_provider, "provider_id"),
                 "frame": _component_id(frame_provider, "provider_id"),
-                "policy": [
-                    _component_id(provider, "provider_id") for provider in policy_providers
-                ],
                 "evidence": [
                     {
                         "provider_id": provider.provider_id,
@@ -65,10 +60,12 @@ class RuntimeDescription:
                 "executor": _component_id(executor, "executor_id"),
             },
             "context_strategies": sorted(context_strategies),
-            "policy_profiles": sorted(policy_profiles),
+            "deployment": {
+                "denied_actions": sorted(str(getattr(item, "value", item)) for item in denied_actions),
+            },
             "proposal_model": {
                 "actions": "ordered-sequence",
-                "policy_scope": "proposal",
+                "validation_scope": "proposal",
                 "observation_boundary": "after-proposal",
                 "atomic_receipts": True,
             },

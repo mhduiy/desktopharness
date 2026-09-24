@@ -17,7 +17,6 @@ CORE_OBJECT_TYPES = (
     AdapterDescriptor,
     CanonicalSnapshot,
     ActionProposal,
-    PolicyDecision,
     ExecutionReceipt,
     AssertionResult,
 )

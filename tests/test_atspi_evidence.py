@@ -3,7 +3,7 @@ import unittest
 from mcp_autogui.adapters.evidence.atspi import AtSpiEvidenceProvider
 from mcp_autogui.core.models import AssertionSpec
 
-from test_v2_core import snapshot
+from tests.test_v2_core import snapshot
 
 
 class FakeText:

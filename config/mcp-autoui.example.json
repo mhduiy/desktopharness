@@ -26,7 +26,9 @@
     "coordinate_type": "relative",
     "resize_factor": 32
   },
-  "policy_providers": {},
+  "deployment": {
+    "denied_actions": []
+  },
   "evidence_providers": {
     "compositor_window": {
       "enabled": true

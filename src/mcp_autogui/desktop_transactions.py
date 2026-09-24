@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .core.orchestrator import CoreOrchestrator
 from .core.task import TaskContract, TaskState
-from .core.transaction import PolicyDecision, PolicyStatus
+from .core.proposal_validator import ValidationFailure
 from .desktop_backend import (
     DesktopTransactionResult,
     ProposalBuilder,
@@ -30,6 +30,9 @@ class CoreDesktopTransactionRunner:
         _, _, state = await self._run_blocking(self._runtime.evaluate, task_id)
         return state
 
+    async def mark_delivered_unverified(self, task_id: str) -> TaskState:
+        return await self._run_blocking(self._runtime.mark_delivered_unverified, task_id)
+
     def _execute(
         self,
         contract: TaskContract,
@@ -41,18 +44,13 @@ class CoreDesktopTransactionRunner:
         if proposal.based_on_snapshot != snapshot.snapshot_id:
             raise ValueError("desktop proposal must reference the transaction snapshot")
         self._runtime.submit_proposal(contract.task_id, proposal)
-        decision = self._runtime.decide(proposal.proposal_id)
-        receipt = None
-        if decision.status == PolicyStatus.ALLOW:
-            execution = self._runtime.execute(proposal.proposal_id)
-            if isinstance(execution, PolicyDecision):
-                decision = execution
-            else:
-                receipt = execution
+        execution = self._runtime.execute(proposal.proposal_id)
+        validation = execution if isinstance(execution, ValidationFailure) else None
+        receipt = None if validation is not None else execution
         return DesktopTransactionResult(
             snapshot=snapshot,
             proposal=proposal,
-            decision=decision,
+            validation=validation,
             receipt=receipt,
             state=self._runtime.status(contract.task_id),
         )

@@ -239,7 +239,6 @@ def create_backend(
         ),
         frame_provider=PyAutoGUIFrameProvider(input_module, artifact_store),
         capture_observation=capture_observation,
-        policy_providers=(platform_provider,),
         create_tools=create_tools,
     )
 

@@ -91,9 +91,8 @@ class CoreBoundaryTests(unittest.TestCase):
             "executor",
             "proposal_provider",
             "frame_provider",
-            "policy_providers",
             "evidence_providers",
             "context_builder",
-            "gate",
+            "validator",
         ):
             self.assertNotIn(f"self.runtime.{component}", facade)

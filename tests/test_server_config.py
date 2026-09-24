@@ -28,7 +28,7 @@ def config_payload(*, backend="treeland-deepin"):
             "timeout_seconds": 120,
             "tls_verify": True,
         },
-        "policy_providers": {},
+        "deployment": {"denied_actions": []},
         "evidence_providers": {"omniparser": {"enabled": False, "endpoint": ""}},
         "audit": {"directory": "/tmp/autoui-audit", "retention_days": 3, "max_gib": 16},
     }
@@ -51,7 +51,7 @@ class ServerConfigTests(unittest.TestCase):
         self.assertEqual(config.transport_port, 8651)
         self.assertEqual(config.transport_auth_mode, "loopback")
         self.assertEqual(config.proposal_provider["model"], "qwen3_rl")
-        self.assertEqual(config.policy_providers, {})
+        self.assertEqual(config.deployment_denied_actions, frozenset())
         self.assertFalse(config.evidence_providers["omniparser"]["enabled"])
         self.assertEqual(config.audit["retention_days"], 3)
 
@@ -97,10 +97,18 @@ class ServerConfigTests(unittest.TestCase):
             load_server_config(self.write_config(payload))
 
         payload = config_payload()
-        payload["policy_providers"] = {
-            "action_restriction": {"enabled": True, "denied_actions": ["not.an.action"]}
-        }
+        payload["deployment"] = {"denied_actions": ["not.an.action"]}
         with self.assertRaisesRegex(ValueError, "contains an unknown action"):
+            load_server_config(self.write_config(payload))
+
+        payload = config_payload()
+        payload["deployment"] = {"denied_actions": ["keyboard.text", "keyboard.text"]}
+        with self.assertRaisesRegex(ValueError, "must not contain duplicates"):
+            load_server_config(self.write_config(payload))
+
+        payload = config_payload()
+        payload["policy_providers"] = {}
+        with self.assertRaisesRegex(ValueError, "unknown fields: policy_providers"):
             load_server_config(self.write_config(payload))
 
     def test_effective_config_is_non_secret(self):
@@ -137,7 +145,6 @@ class ServerConfigTests(unittest.TestCase):
                 executor=object(),
                 frame_provider=object(),
                 capture_observation=lambda: (b"", (0, 0), {}),
-                policy_providers=(),
                 create_tools=lambda _transactions, _run_blocking: object(),
             )
 

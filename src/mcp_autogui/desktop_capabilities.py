@@ -91,12 +91,12 @@ def _capability_id(slug: str) -> str:
     return _KNOWN_CAPABILITIES.get(slug, f"deepin.shortcut.{slug}")
 
 
-def _policy(slug: str, capability_id: str) -> tuple[str, str]:
+def _risk(slug: str, capability_id: str) -> str:
     if capability_id in AUTO_INVOKABLE_CAPABILITIES:
-        return "allow", "low"
+        return "low"
     if any(token in slug for token in _RISKY_TOKENS):
-        return "confirm", "high"
-    return "deny", "medium"
+        return "high"
+    return "medium"
 
 
 def _normalize_hotkey(hotkey: str) -> list[str]:
@@ -112,7 +112,7 @@ def load_keybinding_catalogue(root: Path = DEFAULT_KEYBINDING_ROOT) -> list[dict
             value = lambda name, default=None: contents.get(name, {}).get("value", default)
             slug = _shortcut_slug(path)
             capability_id = _capability_id(slug)
-            policy, risk = _policy(slug, capability_id)
+            risk = _risk(slug, capability_id)
             capabilities.append(
                 {
                     "capability_id": capability_id,
@@ -126,7 +126,6 @@ def load_keybinding_catalogue(root: Path = DEFAULT_KEYBINDING_ROOT) -> list[dict
                     "enabled": bool(value("enabled", False)),
                     "trigger_type": value("triggerType"),
                     "source": "default-schema",
-                    "policy": policy,
                     "risk": risk,
                     "auto_invokable": (
                         capability_id in AUTO_INVOKABLE_CAPABILITIES

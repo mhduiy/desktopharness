@@ -6,13 +6,11 @@ from mcp_autogui.core.models import (
     Action,
     ActionProposal,
     ActionType,
-    PolicyDecision,
-    PolicyStatus,
     ReasonCode,
     TaskContract,
-    TaskPermissions,
     TaskState,
 )
+from mcp_autogui.core.proposal_validator import ValidationFailure
 from mcp_autogui.desktop_transactions import CoreDesktopTransactionRunner
 
 
@@ -31,13 +29,9 @@ class Runtime:
     def submit_proposal(self, task_id, proposal):
         self.calls.append("submit")
 
-    def decide(self, proposal_id):
-        self.calls.append("decide")
-        return PolicyDecision(proposal_id, PolicyStatus.DENY, ReasonCode.POLICY_DENIED)
-
     def execute(self, proposal_id):
         self.calls.append("execute")
-        raise AssertionError("denied transactions must not execute")
+        return ValidationFailure(ReasonCode.ACTION_RESTRICTED, False)
 
     def status(self, task_id):
         self.calls.append("status")
@@ -52,11 +46,7 @@ class DesktopTransactionRunnerTests(unittest.TestCase):
     def test_runner_owns_the_core_transaction_sequence(self):
         runtime = Runtime()
         runner = CoreDesktopTransactionRunner(runtime, run_blocking)
-        contract = TaskContract(
-            "desktop-task",
-            "invoke desktop capability",
-            TaskPermissions(frozenset({ActionType.DONE})),
-        )
+        contract = TaskContract("desktop-task", "invoke desktop capability")
 
         outcome = asyncio.run(
             runner.execute(
@@ -70,8 +60,8 @@ class DesktopTransactionRunnerTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(runtime.calls, ["register", "observe", "submit", "decide", "status"])
-        self.assertEqual(outcome.decision.status, PolicyStatus.DENY)
+        self.assertEqual(runtime.calls, ["register", "observe", "submit", "execute", "status"])
+        self.assertEqual(outcome.validation.reason_code, ReasonCode.ACTION_RESTRICTED)
         self.assertIsNone(outcome.receipt)
 
 

@@ -3,12 +3,30 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from .evidence import AssertionResult, AssertionStatus
 from .task import TaskContract, TaskState, TaskStatus
 
 
 class TaskStateReducer:
+    def validation_failure(
+        self, contract: TaskContract, state: TaskState, *, retryable: bool
+    ) -> TaskState:
+        if not retryable:
+            return replace(state, status=TaskStatus.FAILED)
+        if state.retries < contract.limits.max_retries:
+            return replace(state, status=TaskStatus.RETRYING, retries=state.retries + 1)
+        return replace(state, status=TaskStatus.FAILED)
+
+    @staticmethod
+    def execution_failure(state: TaskState) -> TaskState:
+        return replace(state, status=TaskStatus.FAILED)
+
+    @staticmethod
+    def delivered_unverified(state: TaskState) -> TaskState:
+        return replace(state, status=TaskStatus.DELIVERED_UNVERIFIED)
+
     def reduce(
         self,
         contract: TaskContract,

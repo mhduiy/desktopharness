@@ -3,22 +3,10 @@ import unittest
 from mcp_autogui.provider_registry import (
     ProviderBuildContext,
     available_evidence_providers,
-    available_policy_providers,
     create_evidence_providers,
-    create_policy_providers,
     register_evidence_provider,
-    register_policy_provider,
     validate_evidence_provider,
-    validate_policy_provider,
 )
-from mcp_autogui.core.models import (
-    Action,
-    ActionProposal,
-    ActionType,
-    TaskContract,
-    TaskPermissions,
-)
-from mcp_autogui.adapters.policy import ActionRestrictionPolicyProvider
 
 
 class FixtureEvidenceProvider:
@@ -61,44 +49,3 @@ class ProviderRegistryTests(unittest.TestCase):
             register_evidence_provider(
                 "compositor_window", lambda _config, _location: None, lambda _config, _context: None
             )
-
-    def test_registered_policy_extension_is_validated_and_built(self):
-        provider_id = "test-registry-policy"
-
-        register_policy_provider(
-            provider_id,
-            lambda config, location: None,
-            lambda config: ActionRestrictionPolicyProvider(
-                frozenset({ActionType(config["denied_action"])})
-            ),
-        )
-
-        self.assertIn(provider_id, available_policy_providers())
-        validate_policy_provider(
-            provider_id, {"denied_action": "keyboard.text"}, f"policy_providers.{provider_id}"
-        )
-        providers = create_policy_providers(
-            {provider_id: {"denied_action": "keyboard.text"}}
-        )
-
-        self.assertEqual([provider.provider_id for provider in providers], ["action-restriction"])
-
-    def test_builtin_action_restriction_emits_independent_deny_tag(self):
-        provider = create_policy_providers({
-            "action_restriction": {
-                "enabled": True,
-                "denied_actions": ["keyboard.text"],
-            }
-        })[0]
-        proposal = ActionProposal(
-            "proposal-policy", "fixture", "snapshot-policy",
-            (Action(ActionType.KEYBOARD_TEXT, parameters={"text": "blocked"}),),
-        )
-        contract = TaskContract(
-            "policy-task", "type text", TaskPermissions(frozenset(), frozenset())
-        )
-
-        tags = provider.independent_tags(proposal, contract)
-
-        self.assertEqual([tag.tag for tag in tags], ["action_restricted"])
-        self.assertEqual(tags[0].source, "action-restriction")

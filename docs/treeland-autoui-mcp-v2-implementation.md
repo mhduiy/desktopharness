@@ -10,8 +10,8 @@
 
 ## 当前状态与执行约定
 
-S1 已在当前工作区完成：领域 schema version 为 `2`，运行描述 revision 为 `2.2`，JSON 配置 schema 为 `2`。
-执行链仍是待 S2 精简的 v2.1 ActionGate 路径，默认语义确认和任务语义权限仍存在。
+S1、S2 已在当前工作区完成：领域 schema version 为 `2`，运行描述 revision 为 `2.2`，JSON 配置 schema 为 `2`。
+默认执行链已改为 ProposalValidator prepare/recheck，不再包含语义审批、任务权限或确认分支。
 真实 Treeland/Deepin 验收尚未完成。
 
 项目尚未商用，允许破坏性变更：旧接口、字段、别名和兼容分支直接删除，同步修改仓库内调用方、
@@ -24,7 +24,7 @@ S1 已在当前工作区完成：领域 schema version 为 `2`，运行描述 re
 | --- | --- | --- |
 | S0 | 功能基线与真实任务记录 | 已完成自动基线；真实桌面环境阻塞 |
 | S1 | 统一当前协议，删除旧兼容入口 | 已实施；自动回归通过，真实模型/桌面未测 |
-| S2 | 轻量校验执行链，删除审批框架 | 待实施 |
+| S2 | 轻量校验执行链，删除审批框架 | 已实施；自动回归通过，真实模型/桌面未测 |
 | S3 | 单一运行态、精简记录及诊断解耦 | 待实施 |
 | S4 | 默认依赖、配置、文档与示例收敛 | 待实施 |
 | S5 | 全量回归、真实桌面验收及版本交付 | 待实施 |
@@ -144,6 +144,12 @@ done 顺序、失败短路、重复调用、步骤/重试预算和 Qwen 反馈�
 显式动作限制有效，默认配置无需策略；证据不充分时不得 completed；五类失败的状态、预算与零注入语义符合契约；空断言工具结果不误报 completed。
 
 **建议拆分**：validator 替换 Gate 并更新执行入口 → 删除任务权限/确认及静态限制迁移 → 清理模型反馈与所有调用方。内部校验值只保存实际动作依赖，不要求复刻 Guard 的字段与对象结构。诊断 execute 必须调用同一执行入口并重新校验，不能复用过期的 validate 结果。
+
+**S2 记录（2026-09-24）**：ActionGate 已由不持久化的 ProposalValidator 取代；TaskPermissions、
+PolicyProvider、PolicyDecision、Guard、语义分类、confirm 和 needs-confirmation 已从生产路径删除。
+`deployment.denied_actions` 取代旧策略配置；旧任务和配置字段明确报错。状态归约覆盖 validation、
+stale、execution、assertion 及空断言 `delivered-unverified`，Qwen 对未执行提案接收真实终结反馈。
+自动回归为 `116 tests passed`；真实 Qwen 端点、HTTP 鉴权握手和 Treeland 桌面任务仍待 S5。
 
 ## S3：收敛运行态、记录与按需诊断
 

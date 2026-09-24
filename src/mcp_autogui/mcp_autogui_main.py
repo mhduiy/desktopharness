@@ -3,7 +3,6 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
-from .core.action_gate import DEFAULT_POLICY_PROFILES
 from .core.audit import audit_components_from_config
 from .core.context_builder import ContextBuilder
 from .core.orchestrator import CoreOrchestrator
@@ -13,7 +12,6 @@ from .facade import AutoUIFacade
 from .provider_registry import (
     ProviderBuildContext,
     create_evidence_providers,
-    create_policy_providers,
     create_proposal_provider,
 )
 from .runtime_description import RuntimeDescription
@@ -24,14 +22,20 @@ def mcp_autogui_main(
     *,
     desktop_backend_kind: str = DEFAULT_DESKTOP_BACKEND,
     proposal_provider_config: dict[str, object] | None = None,
-    policy_provider_config: dict[str, object] | None = None,
+    denied_actions=frozenset(),
     evidence_provider_config: dict[str, object] | None = None,
     audit_config: dict[str, object] | None = None,
     effective_config: dict[str, object] | None = None,
+    run_blocking_override=None,
 ):
-    worker_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="autoui-mcp")
+    worker_pool = (
+        None if run_blocking_override is not None
+        else ThreadPoolExecutor(max_workers=4, thread_name_prefix="autoui-mcp")
+    )
 
     async def run_blocking(function, /, *args, **kwargs):
+        if run_blocking_override is not None:
+            return await run_blocking_override(function, *args, **kwargs)
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(worker_pool, partial(function, *args, **kwargs))
 
@@ -48,13 +52,10 @@ def mcp_autogui_main(
         evidence_provider_config or {"compositor_window": {"enabled": True}},
         ProviderBuildContext(store, desktop_backend.capture_observation),
     )
-    policy_providers = (
-        *desktop_backend.policy_providers,
-        *create_policy_providers(policy_provider_config or {}),
-    )
 
     def close_runtime() -> None:
-        worker_pool.shutdown(wait=True, cancel_futures=True)
+        if worker_pool is not None:
+            worker_pool.shutdown(wait=True, cancel_futures=True)
         if callable(proposal_runtime.close):
             proposal_runtime.close()
 
@@ -66,7 +67,7 @@ def mcp_autogui_main(
         proposal_provider=proposal_runtime.provider,
         frame_provider=desktop_backend.frame_provider,
         evidence_providers=evidence_providers,
-        policy_providers=policy_providers,
+        denied_actions=denied_actions,
         store=store,
         ledger=ledger,
     )
@@ -75,9 +76,8 @@ def mcp_autogui_main(
         executor=desktop_backend.executor,
         proposal_provider=proposal_runtime.provider,
         frame_provider=desktop_backend.frame_provider,
-        policy_providers=policy_providers,
         evidence_providers=evidence_providers,
-        policy_profiles=DEFAULT_POLICY_PROFILES,
+        denied_actions=denied_actions,
         context_strategies=ContextBuilder.STRATEGIES,
         effective_config=effective_config,
     )
@@ -93,18 +93,16 @@ def mcp_autogui_main(
         task_id: str = '',
         task_contract: dict | None = None,
         proposal_id: str = '',
-        confirmed: bool = False,
         strategy: str = 'compact',
         max_iterations: int | None = None,
     ) -> dict:
-        """运行紧凑任务生命周期：describe、run、status、confirm、reset。"""
+        """运行紧凑任务生命周期：describe、run、status、reset。"""
         return await run_blocking(
             facade.handle,
             operation,
             task_id=task_id,
             task_contract=task_contract,
             proposal_id=proposal_id,
-            confirmed=confirmed,
             strategy=strategy,
             max_iterations=max_iterations,
         )
@@ -116,12 +114,11 @@ def mcp_autogui_main(
         task_contract: dict | None = None,
         proposal: dict | None = None,
         proposal_id: str = '',
-        confirmed: bool = False,
         strategy: str = 'compact',
         object_ref: str = '',
         max_iterations: int | None = None,
     ) -> dict:
-        """诊断控制器阶段：observe、propose、decide、execute、evaluate、trace。"""
+        """诊断控制器阶段：observe、propose、prepare、execute、evaluate、trace。"""
         return await run_blocking(
             facade.handle_diagnostic,
             operation,
@@ -129,7 +126,6 @@ def mcp_autogui_main(
             task_contract=task_contract,
             proposal=proposal,
             proposal_id=proposal_id,
-            confirmed=confirmed,
             strategy=strategy,
             object_ref=object_ref,
             max_iterations=max_iterations,

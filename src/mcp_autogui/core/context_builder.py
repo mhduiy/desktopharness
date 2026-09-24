@@ -72,7 +72,6 @@ class ContextBuilder:
                 "ordered_action_sequence": True,
                 "observe_after_proposal": True,
                 "remaining_steps": max(0, contract.limits.max_steps - state.step),
-                "policy_profile": contract.policy_profile,
             },
             ledger_event_refs=tuple(event.event_id for event in projected_events),
             spatial_projection=spatial_projection or {},
@@ -93,7 +92,7 @@ class ContextBuilder:
                 for event in selected
                 if event.event_type
                 in {
-                    "proposal.created", "decision.created", "execution.completed",
+                    "proposal.created", "execution.completed",
                     "evidence.collected", "assertion.evaluated",
                     "task.transitioned", "attribution.recorded",
                 }

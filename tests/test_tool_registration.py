@@ -13,7 +13,7 @@ fake_pyautogui.size = lambda: (1000, 800)
 fake_pyautogui.screenshot = lambda: PILImage.new("RGB", (1000, 800), "white")
 sys.modules["pyautogui"] = fake_pyautogui
 
-from mcp_autogui.core.models import ExecutionReceipt, ExecutionStatus, new_id, utc_now
+from mcp_autogui.core.models import ActionType, ExecutionReceipt, ExecutionStatus, new_id, utc_now
 from mcp_autogui.mcp_autogui_main import mcp_autogui_main
 
 
@@ -40,6 +40,10 @@ class Backend:
 
     def close(self):
         return None
+
+
+async def direct_run_blocking(function, /, *args, **kwargs):
+    return function(*args, **kwargs)
 
 
 class ApplicationLauncher:
@@ -93,7 +97,7 @@ class ToolRegistrationTests(unittest.TestCase):
     def test_only_unified_and_desktop_tools_are_registered(self):
         mcp = self.compose()
         with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):
-            mcp_autogui_main(mcp)
+            mcp_autogui_main(mcp, run_blocking_override=direct_run_blocking)
 
         self.assertEqual(
             set(mcp.tools),
@@ -125,12 +129,12 @@ class ToolRegistrationTests(unittest.TestCase):
             "mcp_autogui.adapters.backends.treeland_deepin.read_treeland_tree",
             return_value=desktop_tree(),
         ):
-            mcp_autogui_main(mcp)
+            mcp_autogui_main(mcp, run_blocking_override=direct_run_blocking)
             result = asyncio.run(
                 mcp.functions["desktop_shortcut_invoke"]("desktop.launcher.toggle")
             )
 
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "delivered-unverified")
         self.assertEqual(calls, [("win",)])
 
     def test_application_launch_returns_receipt_and_compositor_evidence(self):
@@ -143,16 +147,31 @@ class ToolRegistrationTests(unittest.TestCase):
             "mcp_autogui.adapters.backends.treeland_deepin.read_treeland_tree",
             return_value=desktop_tree("dde-file-manager"),
         ):
-            mcp_autogui_main(mcp)
+            mcp_autogui_main(mcp, run_blocking_override=direct_run_blocking)
             result = asyncio.run(
                 mcp.functions["desktop_application_launch"](
                     "dde-computer", expected_active_app_id="dde-file-manager"
                 )
             )
 
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "completed")
         self.assertEqual(result["returncode"], 0)
         self.assertEqual(launcher.proposals[0].actions[0].parameters["app_id"], "dde-computer")
+
+    def test_application_launch_without_assertion_is_delivered_unverified(self):
+        mcp = self.compose()
+        launcher = ApplicationLauncher()
+        with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()), patch(
+            "mcp_autogui.adapters.backends.treeland_deepin.DdeApplicationLauncher",
+            return_value=launcher,
+        ), patch(
+            "mcp_autogui.adapters.backends.treeland_deepin.read_treeland_tree",
+            return_value=desktop_tree(),
+        ):
+            mcp_autogui_main(mcp, run_blocking_override=direct_run_blocking)
+            result = asyncio.run(mcp.functions["desktop_application_launch"]("dde-computer"))
+
+        self.assertEqual(result["status"], "delivered-unverified")
 
     def test_omniparser_configuration_registers_no_legacy_execution_tools(self):
         mcp = self.compose()
@@ -177,22 +196,19 @@ class ToolRegistrationTests(unittest.TestCase):
         self.assertEqual(response["status"], "ok")
         self.assertEqual(response["object"]["providers"]["evidence"], [])
 
-    def test_json_policy_configuration_registers_action_restriction(self):
+    def test_deployment_action_restriction_is_described(self):
         mcp = self.compose()
         with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):
             mcp_autogui_main(
                 mcp,
-                policy_provider_config={
-                    "action_restriction": {
-                        "enabled": True,
-                        "denied_actions": ["keyboard.text"],
-                    }
-                },
+                denied_actions=frozenset({ActionType.KEYBOARD_TEXT}),
             )
 
         response = asyncio.run(mcp.functions["gui_diagnostic"]("describe"))
         self.assertEqual(response["status"], "ok")
-        self.assertIn("action-restriction", response["object"]["providers"]["policy"])
+        self.assertEqual(
+            response["object"]["deployment"]["denied_actions"], ["keyboard.text"]
+        )
 
     def test_json_omniparser_configuration_requires_an_explicit_endpoint(self):
         with patch("mcp_autogui.adapters.providers.QwenBackendClient", return_value=Backend()):

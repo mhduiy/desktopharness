@@ -56,7 +56,7 @@ class EntrypointTests(unittest.TestCase):
                 (
                     kwargs["desktop_backend_kind"],
                     kwargs["proposal_provider_config"],
-                    kwargs["policy_provider_config"],
+                    kwargs["denied_actions"],
                     kwargs["evidence_provider_config"],
                     kwargs["audit_config"],
                     kwargs["effective_config"],
@@ -77,7 +77,7 @@ class EntrypointTests(unittest.TestCase):
                 (
                     "treeland-deepin",
                     {"kind": "qwen-cua"},
-                    {},
+                    frozenset(),
                     {},
                     {},
                     {
@@ -88,7 +88,7 @@ class EntrypointTests(unittest.TestCase):
                         },
                         "desktop_backend": "treeland-deepin",
                         "proposal_provider": {"kind": "qwen-cua"},
-                        "policy_providers": {},
+                        "deployment": {"denied_actions": []},
                         "evidence_providers": {},
                         "audit": {},
                     },

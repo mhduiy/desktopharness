@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from .audit_recorder import AuditRecorder
 from .task import TaskState
-from .transaction import ActionProposal, ExecutionReceipt, PolicyDecision
+from .protocol import ReasonCode, to_primitive
+from .transaction import ActionProposal, ExecutionReceipt
 from .task_repository import TaskRepository
 
 
@@ -12,27 +13,6 @@ class TransactionRecorder:
     def __init__(self, tasks: TaskRepository, audit: AuditRecorder) -> None:
         self._tasks = tasks
         self._audit = audit
-
-    def decision(
-        self,
-        task_id: str,
-        proposal: ActionProposal,
-        decision: PolicyDecision,
-        *,
-        caused_by: tuple[str, ...],
-        snapshot_id: str,
-    ) -> str:
-        reference = self._audit.store.put(decision, prefix="policy-decision")
-        self._tasks.record_decision(proposal.proposal_id, decision, reference)
-        self._audit.append(
-            task_id,
-            "decision.created",
-            reference,
-            caused_by=caused_by,
-            snapshot_id=snapshot_id,
-            debug_ref=decision.debug_ref,
-        )
-        return reference
 
     def receipt(
         self,
@@ -54,12 +34,24 @@ class TransactionRecorder:
         )
 
     @staticmethod
-    def notify_decision(provider: object | None, task_id: str, decision: PolicyDecision) -> bool:
-        callback = getattr(provider, "record_decision", None)
+    def notify_outcome(
+        provider: object | None,
+        task_id: str,
+        *,
+        status: str,
+        proposal: ActionProposal,
+        reason: ReasonCode,
+    ) -> bool:
+        callback = getattr(provider, "record_outcome", None)
         if not callable(callback):
             return True
         try:
-            callback(task_id, decision)
+            callback(
+                task_id,
+                status=status,
+                execution={"proposal": to_primitive(proposal), "delivered": False},
+                reason=reason,
+            )
         except Exception:
             return False
         return True

@@ -19,23 +19,19 @@ The default v2 lifecycle is:
 
 1. `gui_run(operation="run", task_contract=...)`
 2. `gui_run(operation="status", task_id=...)`
-3. `gui_run(operation="confirm", task_id=..., proposal_id=...)` when confirmation is required
-4. `gui_run(operation="reset", task_id=...)` to begin again
+3. `gui_run(operation="reset", task_id=...)` to begin again
 
 Normal responses are compact envelopes containing a public task status and an
-`object_ref`. Use `gui_diagnostic` for `observe`, `propose`, `decide`,
+`object_ref`. Use `gui_diagnostic` for `observe`, `propose`, `prepare`,
 `execute`, `evaluate`, and `trace` when inspecting one controller stage or an
-object. The default policy requires confirmation when an action has no
-independent semantic evidence; a model's `claimed_intent` is only a claim. An
+object. `claimed_intent` is diagnostic model output and does not control execution. An
 execution receipt with `status=delivered` confirms input injection, not
 application or task success.
 
-`permissions.actions` remains accepted for protocol compatibility but is not
-an authorization boundary. The Core validates Proposal structure, coordinates,
-semantic policy, and guards without requiring callers to predict whether the
-model will use pointer, keyboard, or shortcut actions. Deployments that need a
-raw-action ceiling can explicitly enable the optional `action_restriction`
-policy provider.
+Task contracts contain only the goal, assertions, limits, and verification profile.
+Before injection, `ProposalValidator` checks action parameters, coordinates,
+capabilities, targets, focus, and current desktop dependencies. Deployments can
+optionally deny canonical actions through `deployment.denied_actions`.
 
 See the [v2 implementation and extension guide](docs/treeland-autoui-mcp-v2-implementation.md)
 and the [v2 design](docs/treeland-autoui-mcp-v2-design.md).
@@ -60,13 +56,12 @@ addressed by the task contract, and each round produces one canonical Proposal
 containing a non-empty ordered action sequence:
 
 1. `gui_run(operation="run", task_contract={"task_id": ..., "goal": ...,
-   "limits": {"max_steps": 5, "max_retries": 2},
-   "policy_overrides": {"unknown": "allow", "content_edit": "allow"}})`
+   "limits": {"max_steps": 5, "max_retries": 2}})`
    executes bounded Proposal transactions (each Proposal may contain an ordered action sequence):
-   observe -> propose (Qwen) -> decide -> guard recheck -> execute ->
+   observe -> propose (Qwen) -> prepare -> recheck -> execute ->
    evaluate -> reduce state, until the task blocks or terminates.
 2. Fine-grained inspection uses `gui_diagnostic` instead: `observe`,
-   `propose`, `decide`, `execute`, `evaluate`, and `trace`.
+   `propose`, `prepare`, `execute`, `evaluate`, and `trace`.
    It expands stored objects such as model output (`debug_ref`), execution
    receipts, assertion results, and Attribution. `status` and `reset` remain
    lifecycle operations on `gui_run`.
@@ -76,11 +71,8 @@ containing a non-empty ordered action sequence:
 Raw-action restriction is opt-in and disabled in the default configuration:
 
 ```json
-"policy_providers": {
-  "action_restriction": {
-    "enabled": true,
-    "denied_actions": ["keyboard.text", "keyboard.shortcut"]
-  }
+"deployment": {
+  "denied_actions": ["keyboard.text", "keyboard.shortcut"]
 }
 ```
 
@@ -94,7 +86,7 @@ The embedded service keeps each prediction pending and commits it to Qwen
 history only after receiving the actual local execution result. Success,
 partial execution, rejection, and failure are fed back explicitly.
 
-OmniParser is disabled by default. When enabled, it is a read-only v2 Evidence/Grounding Provider: it registers no legacy direct-execution tools and cannot bypass Proposal, PolicyDecision, Guard, Receipt, or Assertion processing.
+OmniParser is disabled by default. When enabled, it is a read-only v2 Evidence/Grounding Provider: it registers no legacy direct-execution tools and cannot bypass Proposal validation, Receipt, or Assertion processing.
 
 Start with the [documentation index](docs/README.md). Manual acceptance and repeatable tests are defined in the [AutoUI MCP v2 manual acceptance and regression plan](docs/manual-test-guide.md).
 

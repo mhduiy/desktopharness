@@ -8,7 +8,7 @@ from typing import Any, Callable
 from .desktop import CanonicalSnapshot
 from .evidence import AssertionResult
 from .task import TaskContract, TaskState
-from .transaction import ExecutionReceipt, PolicyDecision, ProposalGuard
+from .transaction import ExecutionReceipt
 
 
 class TaskRepository:
@@ -23,9 +23,6 @@ class TaskRepository:
         self._proposal_tasks: dict[str, str] = {}
         self._provider_proposals: set[str] = set()
         self._provider_finalized: set[str] = set()
-        self._decisions: dict[str, PolicyDecision] = {}
-        self._decision_refs: dict[str, str] = {}
-        self._guards: dict[str, ProposalGuard] = {}
         self._latest_receipts: dict[str, ExecutionReceipt] = {}
         self._terminal_receipts: dict[str, ExecutionReceipt] = {}
         self._latest_results: dict[str, tuple[AssertionResult, ...]] = {}
@@ -105,22 +102,6 @@ class TaskRepository:
     def finalize(self, proposal_id: str) -> None:
         self._provider_finalized.add(proposal_id)
 
-    def decision(self, proposal_id: str) -> PolicyDecision | None:
-        return self._decisions.get(proposal_id)
-
-    def record_decision(self, proposal_id: str, decision: PolicyDecision, reference: str) -> None:
-        self._decisions[proposal_id] = decision
-        self._decision_refs[proposal_id] = reference
-
-    def decision_ref(self, proposal_id: str) -> str | None:
-        return self._decision_refs.get(proposal_id)
-
-    def guard(self, guard_id: str) -> ProposalGuard | None:
-        return self._guards.get(guard_id)
-
-    def record_guard(self, guard: ProposalGuard) -> None:
-        self._guards[guard.guard_id] = guard
-
     def terminal_receipt(self, proposal_id: str) -> ExecutionReceipt | None:
         return self._terminal_receipts.get(proposal_id)
 
@@ -147,6 +128,4 @@ class TaskRepository:
             self._proposal_tasks.pop(proposal_id, None)
             self._provider_proposals.discard(proposal_id)
             self._provider_finalized.discard(proposal_id)
-            self._decisions.pop(proposal_id, None)
-            self._decision_refs.pop(proposal_id, None)
             self._terminal_receipts.pop(proposal_id, None)

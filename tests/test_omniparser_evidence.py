@@ -4,7 +4,7 @@ from mcp_autogui.adapters.evidence.omniparser import OmniParserEvidenceProvider
 from mcp_autogui.core.models import AssertionSpec
 from mcp_autogui.core.store import ObjectStore
 
-from test_v2_core import snapshot
+from tests.test_v2_core import snapshot
 
 
 class Response:

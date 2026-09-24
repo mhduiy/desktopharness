@@ -135,13 +135,12 @@ class CsvAuditEventLedger(EventLedger):
 
 
 def _event_object_type(event_type: str) -> str:
-    """Normalize legacy audit rows without persisting duplicate type metadata."""
+    """Map current audit events without persisting duplicate type metadata."""
     return {
         "task.created": "controller_contract",
         "snapshot.created": "verified_fact",
         "frame.captured": "evidence",
         "proposal.created": "action_proposal",
-        "decision.created": "policy_decision",
         "execution.completed": "execution_receipt",
         "evidence.collected": "evidence",
         "assertion.evaluated": "assertion_result",

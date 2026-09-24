@@ -134,17 +134,18 @@ class QwenCUAProposalProvider:
             reason=reason,
         )
 
-    def record_decision(self, task_id: str, decision: Any) -> object:
-        """Resolve the model pending proposal without inventing a receipt."""
+    def record_outcome(
+        self, task_id: str, *, status: str, execution: Any, reason: Any
+    ) -> object:
+        """Resolve an unexecuted proposal with its actual terminal outcome."""
         recorder = getattr(self._backend, "record_execution", None)
         if not callable(recorder):
-            return {"ok": False, "message": "decision feedback unsupported"}
-        status = "partial" if decision.status.value == "confirm" else "rejected"
+            return {"ok": False, "message": "outcome feedback unsupported"}
         return recorder(
             task_id,
             status=status,
-            execution=to_primitive(decision),
-            reason=decision.reason_code,
+            execution=execution,
+            reason=reason,
         )
 
     def reset(self, task_id: str) -> None:

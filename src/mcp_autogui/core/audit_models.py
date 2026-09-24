@@ -11,7 +11,6 @@ from .protocol import ReasonCode, SCHEMA_VERSION
 class AttributionEventKind(StrEnum):
     ERROR = "error"
     SAFE_REFUSAL = "safe-refusal"
-    POLICY_DECISION = "policy-decision"
     EXTERNAL_CHANGE = "external-change"
     INCOMPLETE = "incomplete"
     INSUFFICIENT_EVIDENCE = "insufficient-evidence"
@@ -28,25 +27,21 @@ class AttributionStage(StrEnum):
     PLANNING = "planning"
     GROUNDING = "grounding"
     PROTOCOL = "protocol"
-    GUARD_EVALUATION = "guard-evaluation"
     EXECUTION = "execution"
     ENVIRONMENT = "environment"
     OUTCOME = "outcome"
     EVIDENCE_COLLECTION = "evidence-collection"
     ASSERTION_EVALUATION = "assertion-evaluation"
     STATE_TRANSITION = "state-transition"
-    POLICY = "policy"
 
 
 class AttributionOwner(StrEnum):
     MODEL = "model"
-    ACTION_GATE = "action-gate"
     EXECUTOR = "executor"
     ENVIRONMENT = "environment"
     EVIDENCE_PROVIDER = "evidence-provider"
     ASSERTION_EVALUATOR = "assertion-evaluator"
     TASK_STATE_REDUCER = "task-state-reducer"
-    CONTROLLER_POLICY = "controller-policy"
     UNKNOWN = "unknown"
 
 

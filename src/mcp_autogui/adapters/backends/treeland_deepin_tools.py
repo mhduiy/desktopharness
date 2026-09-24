@@ -10,13 +10,12 @@ from typing import Any
 from ...core.desktop import Point
 from ...core.protocol import new_id
 from ...core.store import ObjectStore
-from ...core.task import AssertionSpec, TaskContract, TaskLimits, TaskPermissions
+from ...core.task import AssertionSpec, TaskContract, TaskLimits
 from ...core.transaction import (
     Action,
     ActionProposal,
     ActionType,
     ExecutionStatus,
-    PolicyStatus,
 )
 from ...desktop_backend import DesktopTransactionRunner, RunBlocking
 
@@ -75,7 +74,7 @@ class TreelandDeepinTools:
             raise ValueError("desktop capability is disabled in the default schema")
         if not capability["auto_invokable"]:
             raise PermissionError(
-                "controller policy does not allow automatic invocation of this capability"
+                "desktop capability is not available for automatic invocation"
             )
         hotkeys = capability["normalized_hotkeys"]
         if not hotkeys:
@@ -85,10 +84,6 @@ class TreelandDeepinTools:
         contract = TaskContract(
             task_id=task_id,
             goal=f"Invoke platform capability {resolved_id}",
-            permissions=TaskPermissions(
-                frozenset({ActionType.PLATFORM_INVOKE}),
-                frozenset({"navigation"}),
-            ),
             limits=TaskLimits(max_steps=1, max_retries=0),
         )
         outcome = await self._transactions.execute(
@@ -105,10 +100,6 @@ class TreelandDeepinTools:
         )
         raw_before = self._store.require(outcome.snapshot.raw_artifact_ref)
         before = self._active_window_summary(raw_before)
-        if outcome.decision.status != PolicyStatus.ALLOW:
-            raise PermissionError(
-                f"policy refused shortcut: {outcome.decision.reason_code}"
-            )
         receipt = outcome.receipt
         if receipt is None or receipt.status != ExecutionStatus.DELIVERED:
             return {
@@ -118,7 +109,7 @@ class TreelandDeepinTools:
                 "reason": (
                     receipt.error_code
                     if receipt is not None
-                    else outcome.decision.reason_code
+                    else outcome.validation.reason_code
                 ),
             }
         _, _, post_tree, evidence = await self._run_blocking(
@@ -129,8 +120,9 @@ class TreelandDeepinTools:
             "",
             0,
         )
+        state = await self._transactions.mark_delivered_unverified(task_id)
         return {
-            "status": "success",
+            "status": state.status.value,
             "capability": capability,
             "executed_keys": keys,
             "evidence": {
@@ -179,10 +171,6 @@ class TreelandDeepinTools:
         contract = TaskContract(
             task_id=task_id,
             goal=f"Launch application {resolved_app_id}",
-            permissions=TaskPermissions(
-                frozenset({ActionType.APPLICATION_LAUNCH}),
-                frozenset({"open_application"}),
-            ),
             assertions=assertions,
             limits=TaskLimits(max_steps=1, max_retries=0),
             verification_profile="application-open",
@@ -203,10 +191,6 @@ class TreelandDeepinTools:
         active_before = self._active_window_summary(
             self._store.require(outcome.snapshot.raw_artifact_ref)
         )
-        if outcome.decision.status != PolicyStatus.ALLOW:
-            raise PermissionError(
-                f"policy refused application launch: {outcome.decision.reason_code}"
-            )
         receipt = outcome.receipt
         result = self._application_result_for(outcome.proposal.proposal_id)
         if receipt is None or receipt.status != ExecutionStatus.DELIVERED:
@@ -219,7 +203,7 @@ class TreelandDeepinTools:
                 "reason": (
                     receipt.error_code
                     if receipt is not None
-                    else outcome.decision.reason_code
+                    else outcome.validation.reason_code
                 ),
             }
 
@@ -238,10 +222,13 @@ class TreelandDeepinTools:
             active_after,
             application_wait,
         )
-        await self._transactions.evaluate(task_id)
+        if assertions:
+            state = await self._transactions.evaluate(task_id)
+        else:
+            state = await self._transactions.mark_delivered_unverified(task_id)
         return {
             "status": (
-                "success"
+                state.status.value
                 if task_validation is None or task_validation["status"] == "passed"
                 else "partial"
             ),

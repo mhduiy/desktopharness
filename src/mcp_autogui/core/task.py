@@ -11,16 +11,10 @@ from .protocol import SCHEMA_VERSION
 
 class TaskStatus(StrEnum):
     RUNNING = "running"
-    NEEDS_CONFIRMATION = "needs-confirmation"
     RETRYING = "retrying"
     COMPLETED = "completed"
+    DELIVERED_UNVERIFIED = "delivered-unverified"
     FAILED = "failed"
-
-
-@dataclass(frozen=True, slots=True)
-class TaskPermissions:
-    actions: frozenset["ActionType"]
-    semantic_intents: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,12 +43,9 @@ class TaskLimits:
 class TaskContract:
     task_id: str
     goal: str
-    permissions: TaskPermissions
     assertions: tuple[AssertionSpec, ...] = ()
     limits: TaskLimits = field(default_factory=TaskLimits)
-    policy_profile: str = "desktop-safe-default"
     verification_profile: str = "default"
-    policy_overrides: Mapping[str, str] = field(default_factory=dict)
     schema_version: str = SCHEMA_VERSION
 
 
@@ -67,6 +58,3 @@ class TaskState:
     completed_assertions: tuple[str, ...] = ()
     failed_assertions: tuple[str, ...] = ()
     schema_version: str = SCHEMA_VERSION
-
-
-from .transaction import ActionType
