@@ -11,27 +11,6 @@ from typing import Any, Mapping
 from .agent import AgentPrediction, QwenCUAAgent
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(name: str, default: int, minimum: int = 1) -> int:
-    try:
-        return max(minimum, int(os.getenv(name, str(default))))
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
-    try:
-        return max(minimum, float(os.getenv(name, str(default))))
-    except (TypeError, ValueError):
-        return default
-
-
 @dataclass(frozen=True)
 class QwenCUAConfig:
     model: str
@@ -47,25 +26,6 @@ class QwenCUAConfig:
     max_history_turns: int
     coordinate_type: str
     resize_factor: int
-
-    @classmethod
-    def from_env(cls) -> "QwenCUAConfig":
-        return cls(
-            model=os.getenv("CUA_MODEL", "qwen3_rl").strip() or "qwen3_rl",
-            base_url=os.getenv("CUA_MODEL_BASE_URL", "").strip().rstrip("/"),
-            api_key=os.getenv("CUA_MODEL_API_KEY", "").strip(),
-            timeout=_env_float("CUA_MODEL_TIMEOUT", 120.0, 1.0),
-            verify_tls=_env_bool("CUA_MODEL_TLS_VERIFY", True),
-            trust_env=_env_bool("CUA_MODEL_TRUST_ENV", False),
-            max_tokens=_env_int("CUA_MAX_TOKENS", 1024),
-            max_response_chars=_env_int("CUA_MAX_RESPONSE_CHARS", 16384, 1024),
-            top_p=min(1.0, _env_float("CUA_TOP_P", 0.5)),
-            temperature=min(1.0, _env_float("CUA_TEMPERATURE", 0.1)),
-            max_history_turns=_env_int("CUA_MAX_HISTORY_TURNS", 4),
-            coordinate_type=os.getenv("CUA_COORDINATE_TYPE", "relative").strip()
-            or "relative",
-            resize_factor=_env_int("CUA_RESIZE_FACTOR", 32),
-        )
 
     @classmethod
     def from_provider_config(cls, provider: Mapping[str, object]) -> "QwenCUAConfig":
@@ -117,7 +77,7 @@ class QwenCUAService:
         *,
         agent: QwenCUAAgent | None = None,
     ) -> None:
-        self.config = config or QwenCUAConfig.from_env()
+        self.config = config or QwenCUAConfig.from_provider_config({})
         self._agent = agent
         self._sessions: dict[str, _Session] = {}
         self._sessions_lock = threading.RLock()
@@ -250,7 +210,7 @@ class QwenCUAService:
             "message": (
                 "ready"
                 if self.config.base_url
-                else "CUA_MODEL_BASE_URL is not configured"
+                else "proposal_provider.base_url is not configured"
             ),
         }
 

@@ -62,7 +62,7 @@ class AuditCliTests(unittest.TestCase):
                 ledger = tarfile.TarInfo("ledger.csv")
                 ledger.size = len(payload)
                 archive.addfile(ledger, io.BytesIO(payload))
-                manifest = json.dumps({"schema_version": 1, "files": {}}).encode()
+                manifest = json.dumps({"schema_version": 2, "files": {}}).encode()
                 manifest_info = tarfile.TarInfo("manifest.json")
                 manifest_info.size = len(manifest)
                 archive.addfile(manifest_info, io.BytesIO(manifest))

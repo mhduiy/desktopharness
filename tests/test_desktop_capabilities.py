@@ -93,9 +93,7 @@ class DesktopCapabilitiesTests(unittest.TestCase):
                 parameters={"capability_id": "desktop.lock"},
             ),
         )
-        proposal = ActionProposal(
-            "proposal-1", "fixture", "snapshot-1", actions[0], actions
-        )
+        proposal = ActionProposal("proposal-1", "fixture", "snapshot-1", actions)
 
         tags = provider.independent_tags(proposal, None)
 

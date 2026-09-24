@@ -9,7 +9,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 
 def new_id(prefix: str) -> str:

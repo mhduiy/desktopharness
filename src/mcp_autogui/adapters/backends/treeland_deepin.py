@@ -54,9 +54,10 @@ class DdeApplicationLauncher:
         status = ExecutionStatus.FAILED
         error = None
         try:
-            if proposal.action.type != ActionType.APPLICATION_LAUNCH:
+            action = proposal.actions[0]
+            if action.type != ActionType.APPLICATION_LAUNCH:
                 raise ValueError("launcher received a non-launch proposal")
-            app_id = validate_application_id(str(proposal.action.parameters.get("app_id") or ""))
+            app_id = validate_application_id(str(action.parameters.get("app_id") or ""))
             result = self._runner(
                 ["dde-am", app_id], capture_output=True, text=True, timeout=10, check=False
             )
@@ -76,7 +77,7 @@ class DdeApplicationLauncher:
             execution_id=new_id("execution"),
             proposal_id=proposal.proposal_id,
             status=status,
-            executed_action=proposal.action if status == ExecutionStatus.DELIVERED else None,
+            executed_action=action if status == ExecutionStatus.DELIVERED else None,
             started_at=started,
             finished_at=utc_now(),
             error_code=error,
@@ -187,8 +188,8 @@ def create_backend(
             input_module.dragTo(
                 point.x,
                 point.y,
-                duration=proposal.action.parameters.get("duration", 1.2),
-                button=proposal.action.parameters.get("button", "left"),
+                duration=proposal.actions[0].parameters.get("duration", 1.2),
+                button=proposal.actions[0].parameters.get("button", "left"),
             )
             return True
         raise ValueError("drag_source_not_on_titlebar_or_resize_border")

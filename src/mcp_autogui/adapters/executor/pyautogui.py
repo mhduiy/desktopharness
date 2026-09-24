@@ -36,7 +36,8 @@ class PyAutoGUIExecutor:
         self._application_handler = application_handler
 
     def execute(self, proposal: ActionProposal) -> ExecutionReceipt:
-        if proposal.action.type == ActionType.APPLICATION_LAUNCH and self._application_handler:
+        action = proposal.actions[0]
+        if action.type == ActionType.APPLICATION_LAUNCH and self._application_handler:
             return self._application_handler(proposal)
         started = utc_now()
         status = ExecutionStatus.DELIVERED
@@ -50,14 +51,14 @@ class PyAutoGUIExecutor:
             execution_id=new_id("execution"),
             proposal_id=proposal.proposal_id,
             status=status,
-            executed_action=proposal.action if status == ExecutionStatus.DELIVERED else None,
+            executed_action=action if status == ExecutionStatus.DELIVERED else None,
             started_at=started,
             finished_at=utc_now(),
             error_code=error,
         )
 
     def _inject(self, proposal: ActionProposal) -> None:
-        action = proposal.action
+        action = proposal.actions[0]
         point = (
             self._coordinate_mapper(action.coordinate, action.coordinate_space or "", proposal)
             if action.coordinate is not None

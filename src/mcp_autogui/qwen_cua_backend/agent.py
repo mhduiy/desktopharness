@@ -49,7 +49,7 @@ class QwenCUAAgent:
         resize_factor: int = 32,
     ) -> None:
         if not base_url:
-            raise ValueError("CUA_MODEL_BASE_URL is required in embedded mode")
+            raise ValueError("proposal_provider.base_url is required")
         if not model:
             raise ValueError("CUA_MODEL is required in embedded mode")
         if coordinate_type not in {"relative", "absolute"}:

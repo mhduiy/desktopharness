@@ -39,18 +39,7 @@ class McpManager:
             return (get_default_environment() | target['env']) if 'env' in target else None
 
         def _build_sse_url():
-            if 'url' in target:
-                return target['url']
-            if 'sse_url' in target:
-                return target['sse_url']
-            env = target.get('env', {})
-            if 'SSE_HOST' in env or 'SSE_PORT' in env:
-                host = env.get('SSE_HOST', '127.0.0.1')
-                if host in ('0.0.0.0', '::', '[::]'):
-                    host = '127.0.0.1'
-                port = env.get('SSE_PORT', 8000)
-                return f"http://{host}:{port}/sse"
-            return None
+            return target.get('url')
 
         async def _run_session(read, write):
             async with ClientSession(read, write) as session:
@@ -63,7 +52,7 @@ class McpManager:
 
         try:
             sse_url = _build_sse_url()
-            use_sse = target.get('transport') == 'sse' or sse_url is not None
+            use_sse = target.get('transport') == 'sse'
 
             if use_sse:
                 proc = None
@@ -82,7 +71,7 @@ class McpManager:
                         )
 
                     if sse_url is None:
-                        raise ValueError('SSE transport requires "url"/"sse_url" or SSE_HOST/SSE_PORT in env.')
+                        raise ValueError('SSE transport requires "url".')
 
                     connect_timeout_s = target.get('connect_timeout_s', 30)
                     poll_s = 0.5

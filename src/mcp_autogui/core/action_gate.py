@@ -128,7 +128,7 @@ class ActionGate:
         working_snapshot = snapshot
         for action_index, action in enumerate(proposal.action_sequence):
             guard, error = self._derive_guard(
-                replace(proposal, action=action, actions=()), working_snapshot, action_index
+                replace(proposal, actions=(action,)), working_snapshot, action_index
             )
             if error is not None:
                 return (), error
@@ -209,7 +209,7 @@ class ActionGate:
         snapshot: CanonicalSnapshot,
         action_index: int = 0,
     ) -> tuple[ProposalGuard | None, tuple[PolicyStatus, ReasonCode] | None]:
-        action = proposal.action
+        action = proposal.actions[0]
         target_id: str | None = None
         point: Point | None = None
         require_hit = False

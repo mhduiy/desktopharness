@@ -3,24 +3,35 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from shutil import copyfile
-
-from mcp_autogui.core.audit import audit_components_from_config, audit_components_from_environment
+from mcp_autogui.core.audit import audit_components_from_config
 from mcp_autogui.core.ledger import CsvAuditEventLedger
 from mcp_autogui.core.store import JsonAuditObjectStore
 
 
 class AuditPersistenceTests(unittest.TestCase):
-    def test_schema_1_ledger_fixture_remains_readable(self):
-        fixture = Path(__file__).parent / "fixtures" / "v2-ledger-schema-1.csv"
+    def test_schema_1_ledger_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            copyfile(fixture, Path(directory) / "ledger.csv")
             ledger = CsvAuditEventLedger(directory)
+            ledger.append("task-1", "task.created", "object-1")
+            contents = ledger.path.read_text(encoding="utf-8")
+            ledger.path.write_text(contents.replace(",2\n", ",1\n"), encoding="utf-8")
 
-            event, = ledger.events("legacy-task")
-            self.assertEqual(event.event_id, "event-legacy-1")
-            self.assertEqual(event.caused_by, ("proposal-event-1",))
-            self.assertEqual(event.artifact_refs, ("guard-legacy-1",))
+            with self.assertRaisesRegex(ValueError, "schema_version is not supported"):
+                CsvAuditEventLedger(directory)
+
+    def test_schema_1_object_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = JsonAuditObjectStore(directory)
+            store.put({"answer": 42}, object_ref="object-1")
+            path = store.directory / "object-1.json"
+            contents = path.read_text(encoding="utf-8").replace(
+                '"schema_version":2', '"schema_version":1'
+            )
+            path.write_text(contents, encoding="utf-8")
+
+            reopened = JsonAuditObjectStore(directory)
+            with self.assertRaisesRegex(ValueError, "schema_version is not supported"):
+                reopened.require("object-1")
 
     def test_json_objects_and_csv_events_survive_a_new_store_instance(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -47,17 +58,7 @@ class AuditPersistenceTests(unittest.TestCase):
             self.assertEqual(reopened.require("large-1"), {"large": "x" * 100})
             self.assertTrue((reopened.artifact_directory / "image-1.bin").is_file())
 
-    def test_environment_factory_defaults_to_memory_and_can_enable_audit(self):
-        original = os.environ.pop("GUI_AUDIT_DIR", None)
-        try:
-            store, ledger = audit_components_from_environment()
-            self.assertNotIsInstance(store, JsonAuditObjectStore)
-            self.assertNotIsInstance(ledger, CsvAuditEventLedger)
-        finally:
-            if original is not None:
-                os.environ["GUI_AUDIT_DIR"] = original
-
-    def test_json_config_ignores_legacy_environment_and_creates_persistent_components(self):
+    def test_json_config_creates_persistent_components(self):
         with tempfile.TemporaryDirectory() as directory:
             with unittest.mock.patch.dict(os.environ, {"GUI_AUDIT_DIR": "/legacy"}):
                 store, ledger = audit_components_from_config(

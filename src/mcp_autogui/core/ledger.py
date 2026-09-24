@@ -10,7 +10,7 @@ from pathlib import Path
 from threading import RLock
 
 from .audit_models import LedgerEvent
-from .protocol import new_id, utc_now
+from .protocol import SCHEMA_VERSION, new_id, utc_now
 from .store import _private_directory
 
 
@@ -83,7 +83,12 @@ class CsvAuditEventLedger(EventLedger):
         if not self.path.exists():
             return
         with self.path.open("r", encoding="utf-8", newline="") as handle:
-            for row in csv.DictReader(handle):
+            reader = csv.DictReader(handle)
+            if tuple(reader.fieldnames or ()) != self.FIELDS:
+                raise ValueError("audit ledger schema is not supported")
+            for row in reader:
+                if row["schema_version"] != SCHEMA_VERSION:
+                    raise ValueError("audit ledger schema_version is not supported")
                 event = LedgerEvent(
                     event_id=row["event_id"], task_id=row["task_id"], sequence=int(row["sequence"]),
                     occurred_at=row["occurred_at"], event_type=row["event_type"],

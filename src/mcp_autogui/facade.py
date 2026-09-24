@@ -21,11 +21,6 @@ from .protocol_response import diagnostic_response, reduce_public_response
 from .runtime_description import RuntimeDescription
 
 
-_ACTION_ALIASES = {
-    "keyboard.text_input": "keyboard.text",
-    "keyboard.keys": "keyboard.key",
-    "keyboard.shortcuts": "keyboard.shortcut",
-}
 _PUBLIC_OPERATIONS = frozenset({"describe", "run", "status", "confirm", "reset"})
 _DIAGNOSTIC_OPERATIONS = frozenset(
     {"describe", "observe", "propose", "decide", "execute", "evaluate", "trace"}
@@ -437,7 +432,7 @@ def parse_task_contract(value: dict[str, Any]) -> TaskContract:
         raise ValueError("task_contract must be an object")
     permissions = value.get("permissions") or {}
     actions = frozenset(
-        ActionType(_ACTION_ALIASES.get(str(item), str(item)))
+        ActionType(str(item))
         for item in permissions.get("actions", [])
     )
     assertions = tuple(
@@ -470,10 +465,7 @@ def parse_task_contract(value: dict[str, Any]) -> TaskContract:
 
 
 def _normalize_operation(operation: str) -> str:
-    normalized = operation.strip().lower()
-    return {"assess": "decide", "verify": "evaluate"}.get(
-        normalized, normalized
-    )
+    return operation.strip().lower()
 
 
 def _recovery_for(code: ReasonCode) -> dict[str, Any]:
@@ -501,7 +493,7 @@ def parse_action_proposal(value: dict[str, Any], default_snapshot: str) -> Actio
         if not isinstance(action_value, dict):
             raise ValueError("proposal action must be an object")
         requested_type = str(action_value.get("type"))
-        action_type = ActionType(_ACTION_ALIASES.get(requested_type, requested_type))
+        action_type = ActionType(requested_type)
         coordinate_value = action_value.get("coordinate")
         point = None
         space = None
@@ -520,15 +512,12 @@ def parse_action_proposal(value: dict[str, Any], default_snapshot: str) -> Actio
                 parameters.setdefault(key, item)
         return Action(action_type, point, space, parameters)
 
+    if "action" in value:
+        raise ValueError("proposal.action is not supported; use proposal.actions")
     raw_actions = value.get("actions")
-    if raw_actions is not None:
-        if not isinstance(raw_actions, list) or not raw_actions:
-            raise ValueError("proposal.actions must be a non-empty list")
-        actions = tuple(parse_action(item) for item in raw_actions)
-        action = parse_action(value["action"]) if value.get("action") is not None else actions[0]
-    else:
-        action = parse_action(value.get("action") or {})
-        actions = ()
+    if not isinstance(raw_actions, list) or not raw_actions:
+        raise ValueError("proposal.actions must be a non-empty list")
+    actions = tuple(parse_action(item) for item in raw_actions)
     claimed_intent = value.get("claimed_intent")
     if "semantic_intent" in value:
         raise ValueError("semantic_intent is not supported; use claimed_intent")
@@ -538,7 +527,6 @@ def parse_action_proposal(value: dict[str, Any], default_snapshot: str) -> Actio
         proposal_id=str(value.get("proposal_id") or new_id("proposal")),
         source=str(value.get("source") or "controller"),
         based_on_snapshot=str(value.get("based_on_snapshot") or default_snapshot),
-        action=action,
         actions=actions,
         claimed_intent=claimed_intent,
         debug_ref=value.get("debug_ref"),

@@ -10,17 +10,19 @@ from mcp_autogui.desktop_backend import (
     create_desktop_backend,
     register_desktop_backend,
 )
-from mcp_autogui.server_config import ignored_legacy_environment, load_server_config
+from mcp_autogui.server_config import load_server_config
 
 
 def config_payload(*, backend="treeland-deepin"):
     return {
-        "schema_version": 1,
-        "transport": {"mode": "streamable-http", "host": "127.0.0.1", "port": 8651},
+        "schema_version": 2,
+        "transport": {
+            "mode": "streamable-http", "host": "127.0.0.1", "port": 8651,
+            "auth": {"mode": "loopback"},
+        },
         "desktop_backend": {"kind": backend},
         "proposal_provider": {
             "kind": "qwen-cua",
-            "mode": "embedded",
             "model": "qwen3_rl",
             "base_url": "http://127.0.0.1:8000/v1",
             "timeout_seconds": 120,
@@ -47,6 +49,7 @@ class ServerConfigTests(unittest.TestCase):
         self.assertIn(config.desktop_backend, available_desktop_backends())
         self.assertEqual(config.transport_mode, "streamable-http")
         self.assertEqual(config.transport_port, 8651)
+        self.assertEqual(config.transport_auth_mode, "loopback")
         self.assertEqual(config.proposal_provider["model"], "qwen3_rl")
         self.assertEqual(config.policy_providers, {})
         self.assertFalse(config.evidence_providers["omniparser"]["enabled"])
@@ -55,6 +58,17 @@ class ServerConfigTests(unittest.TestCase):
     def test_unknown_backend_is_rejected_before_server_start(self):
         with self.assertRaisesRegex(ValueError, "desktop_backend.kind"):
             load_server_config(self.write_config(config_payload(backend="other-desktop")))
+
+    def test_removed_config_versions_and_qwen_modes_are_rejected(self):
+        payload = config_payload()
+        payload["schema_version"] = 1
+        with self.assertRaisesRegex(ValueError, "schema_version must be 2"):
+            load_server_config(self.write_config(payload))
+
+        payload = config_payload()
+        payload["proposal_provider"]["mode"] = "embedded"
+        with self.assertRaisesRegex(ValueError, "unknown fields: mode"):
+            load_server_config(self.write_config(payload))
 
     def test_unknown_or_invalid_nested_configuration_is_rejected(self):
         payload = config_payload()
@@ -89,11 +103,27 @@ class ServerConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "contains an unknown action"):
             load_server_config(self.write_config(payload))
 
-    def test_effective_config_is_non_secret_and_legacy_environment_is_visible(self):
+    def test_effective_config_is_non_secret(self):
         config = load_server_config(self.write_config(config_payload()))
         self.assertNotIn("api_key", config.effective_config()["proposal_provider"])
-        with patch.dict("os.environ", {"CUA_MODEL": "legacy", "CUA_MODEL_API_KEY": "secret"}, clear=True):
-            self.assertEqual(ignored_legacy_environment(), ("CUA_MODEL",))
+        self.assertEqual(config.effective_config()["transport"]["auth"], {"mode": "loopback"})
+
+    def test_external_bind_requires_a_configured_bearer_token(self):
+        payload = config_payload()
+        payload["transport"]["host"] = "0.0.0.0"
+        with self.assertRaisesRegex(ValueError, "requires a loopback host"):
+            load_server_config(self.write_config(payload))
+
+        payload["transport"]["auth"] = {
+            "mode": "bearer-token", "token_env": "AUTOUI_TEST_TOKEN"
+        }
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "AUTOUI_TEST_TOKEN"):
+                load_server_config(self.write_config(payload))
+        with patch.dict("os.environ", {"AUTOUI_TEST_TOKEN": "secret"}, clear=True):
+            config = load_server_config(self.write_config(payload))
+        self.assertEqual(config.transport_auth_mode, "bearer-token")
+        self.assertEqual(config.transport_token_env, "AUTOUI_TEST_TOKEN")
 
     def test_registered_backend_factory_is_selected_without_a_platform_branch(self):
         backend_id = "test-desktop-registry"

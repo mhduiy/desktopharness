@@ -8,10 +8,13 @@ from mcp_autogui.smoke import _mcp_describe_check, _treeland_tree_check, main
 
 def test_smoke_reports_effective_config_and_tree_check(capsys):
     payload = {
-        "schema_version": 1,
-        "transport": {"mode": "streamable-http", "host": "127.0.0.1", "port": 8651},
+        "schema_version": 2,
+        "transport": {
+            "mode": "streamable-http", "host": "127.0.0.1", "port": 8651,
+            "auth": {"mode": "loopback"},
+        },
         "desktop_backend": {"kind": "treeland-deepin"},
-        "proposal_provider": {"kind": "qwen-cua", "mode": "embedded", "base_url": "https://model.example/v1"},
+        "proposal_provider": {"kind": "qwen-cua", "base_url": "https://model.example/v1"},
     }
     with TemporaryDirectory() as directory:
         path = Path(directory) / "config.json"

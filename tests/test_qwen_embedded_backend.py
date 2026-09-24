@@ -324,11 +324,10 @@ class EmbeddedServiceTests(unittest.TestCase):
 
 
 class BackendSelectionTests(unittest.TestCase):
-    def test_json_provider_configuration_overrides_legacy_model_environment(self):
+    def test_json_provider_configuration_is_authoritative(self):
         with patch.dict(
             os.environ,
             {
-                "CUA_BACKEND_MODE": "http",
                 "CUA_MODEL": "legacy-model",
                 "CUA_MODEL_BASE_URL": "http://legacy",
                 "CUA_MODEL_TRUST_ENV": "1",
@@ -340,7 +339,6 @@ class BackendSelectionTests(unittest.TestCase):
             backend = QwenBackendClient(
                 {
                     "kind": "qwen-cua",
-                    "mode": "embedded",
                     "model": "configured-model",
                     "base_url": "http://configured/v1",
                     "timeout_seconds": 30,
@@ -360,21 +358,12 @@ class BackendSelectionTests(unittest.TestCase):
         self.assertEqual(backend._delegate.config.max_tokens, 512)
         self.assertEqual(backend._delegate.config.temperature, 0.2)
 
-    def test_embedded_is_default_and_does_not_require_backend_url(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("CUA_BACKEND_MODE", None)
-            os.environ.pop("CUA_BACKEND_URL", None)
-            os.environ.pop("CUA_MODEL_BASE_URL", None)
-            backend = QwenBackendClient()
+    def test_embedded_backend_does_not_require_model_url_for_health(self):
+        backend = QwenBackendClient({"kind": "qwen-cua"})
         health = backend.health()
         self.assertEqual(backend.mode, "embedded")
         self.assertEqual(health["backend_mode"], "embedded")
         self.assertFalse(health["configured"])
-
-    def test_invalid_backend_mode_is_rejected(self):
-        with patch.dict(os.environ, {"CUA_BACKEND_MODE": "invalid"}, clear=False):
-            with self.assertRaisesRegex(ValueError, "embedded.*http"):
-                QwenBackendClient()
 
 
 if __name__ == "__main__":

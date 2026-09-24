@@ -7,7 +7,6 @@ import csv
 import hashlib
 import io
 import json
-import os
 import sys
 import tarfile
 import tempfile
@@ -20,10 +19,9 @@ from typing import Any, Sequence
 
 
 def _archive_path(value: str | None) -> Path:
-    directory = value or os.environ.get("GUI_AUDIT_DIR")
-    if not directory:
-        raise ValueError("set GUI_AUDIT_DIR or pass --audit-dir")
-    root = Path(directory).expanduser().resolve()
+    if not value:
+        raise ValueError("pass --audit-dir")
+    root = Path(value).expanduser().resolve()
     if not root.exists():
         raise ValueError(f"audit path does not exist: {root}")
     return root
@@ -45,6 +43,8 @@ def _open_archive(path: Path):
                 if manifest_source is None:
                     raise ValueError("audit archive manifest is unreadable")
                 manifest = json.load(manifest_source)
+                if manifest.get("schema_version") != 2:
+                    raise ValueError("audit archive schema_version is not supported")
                 expected_files = manifest["files"]
             except (KeyError, json.JSONDecodeError, tarfile.TarError) as exc:
                 raise ValueError("audit archive lacks a valid manifest.json") from exc
@@ -100,7 +100,7 @@ def create_archive(root: Path, output: str) -> Path:
         if directory.is_dir():
             files.extend((path, f"{name}/{path.name}") for path in sorted(directory.glob(pattern)))
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "files": {
             arcname: {"bytes": path.stat().st_size, "sha256": _sha256_file(path)}
             for path, arcname in files
@@ -217,7 +217,7 @@ def extract(root: Path, reference: str, output: str) -> None:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Inspect a compositor-neutral AutoUI v2 audit archive.")
-    result.add_argument("--audit-dir", help="archive directory (defaults to GUI_AUDIT_DIR)")
+    result.add_argument("--audit-dir", required=True, help="archive directory or .tar.gz archive")
     return result
 
 

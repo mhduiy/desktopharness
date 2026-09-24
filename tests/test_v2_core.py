@@ -107,7 +107,7 @@ def click_proposal(snapshot_id="snapshot-1", semantic="navigation", source="cont
         proposal_id=new_id("proposal"),
         source=source,
         based_on_snapshot=snapshot_id,
-        action=Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),
+        actions=(Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),),
         claimed_intent=semantic,
     )
 
@@ -134,7 +134,7 @@ class FakeExecutor:
         now = utc_now()
         return ExecutionReceipt(
             new_id("execution"), proposal.proposal_id, ExecutionStatus.DELIVERED,
-            proposal.action, now, now,
+            proposal.actions[0], now, now,
         )
 
 
@@ -208,9 +208,7 @@ class ActionGateTests(unittest.TestCase):
             Action(ActionType.POINTER_MOVE, Point(100, 100), "desktop-logical"),
             Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),
         )
-        proposal = ActionProposal(
-            new_id("proposal"), "qwen-cua", "snapshot-1", actions[0], actions
-        )
+        proposal = ActionProposal(new_id("proposal"), "qwen-cua", "snapshot-1", actions)
         gate = ActionGate(descriptor(), lambda point, current: "desktop")
 
         decision, _, _ = gate.decide(
@@ -225,7 +223,7 @@ class ActionGateTests(unittest.TestCase):
     def test_declared_actions_do_not_change_core_policy_decision(self):
         proposal = ActionProposal(
             proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
-            action=Action(ActionType.POINTER_MOVE, Point(10, 10), "desktop-logical"),
+            actions=(Action(ActionType.POINTER_MOVE, Point(10, 10), "desktop-logical"),),
         )
         gate = ActionGate(descriptor(), lambda point, current: "desktop")
         declarations = (
@@ -246,7 +244,7 @@ class ActionGateTests(unittest.TestCase):
     def test_done_is_internal_and_does_not_require_declared_action(self):
         proposal = ActionProposal(
             proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
-            action=Action(ActionType.DONE),
+            actions=(Action(ActionType.DONE),),
         )
 
         decision, _, _ = ActionGate(
@@ -259,7 +257,6 @@ class ActionGateTests(unittest.TestCase):
     def test_done_must_remain_the_last_action(self):
         proposal = ActionProposal(
             proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
-            action=Action(ActionType.DONE),
             actions=(
                 Action(ActionType.DONE),
                 Action(ActionType.KEYBOARD_KEY, parameters={"key": "enter"}),
@@ -276,7 +273,7 @@ class ActionGateTests(unittest.TestCase):
     def test_independent_action_restriction_tag_is_denied(self):
         proposal = ActionProposal(
             proposal_id=new_id("proposal"), source="fixture", based_on_snapshot="snapshot-1",
-            action=Action(ActionType.KEYBOARD_TEXT, parameters={"text": "blocked"}),
+            actions=(Action(ActionType.KEYBOARD_TEXT, parameters={"text": "blocked"}),),
         )
         restriction = SemanticTag(
             "action_restricted", "fixture-policy", None, EvidenceConfidence.DETERMINISTIC
@@ -424,7 +421,7 @@ class OrchestratorTests(unittest.TestCase):
                 self.actions = []
 
             def execute(self, proposal):
-                self.actions.append(proposal.action)
+                self.actions.append(proposal.actions[0])
                 return super().execute(proposal)
 
         actions = (
@@ -440,9 +437,7 @@ class OrchestratorTests(unittest.TestCase):
             contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL})
         )
         observed = runtime.observe("task-1")
-        proposal = ActionProposal(
-            new_id("proposal"), "fixture", observed.snapshot_id, actions[0], actions
-        )
+        proposal = ActionProposal(new_id("proposal"), "fixture", observed.snapshot_id, actions)
         runtime.submit_proposal("task-1", proposal)
 
         receipt = runtime.execute(proposal.proposal_id)
@@ -469,7 +464,7 @@ class OrchestratorTests(unittest.TestCase):
                 self.actions = []
 
             def execute(self, proposal):
-                self.actions.append(proposal.action)
+                self.actions.append(proposal.actions[0])
                 if len(self.actions) == 2:
                     now = utc_now()
                     return ExecutionReceipt(
@@ -493,9 +488,7 @@ class OrchestratorTests(unittest.TestCase):
             contract(actions={ActionType.POINTER_MOVE, ActionType.POINTER_SCROLL})
         )
         observed = runtime.observe("task-1")
-        proposal = ActionProposal(
-            new_id("proposal"), "fixture", observed.snapshot_id, actions[0], actions
-        )
+        proposal = ActionProposal(new_id("proposal"), "fixture", observed.snapshot_id, actions)
         runtime.submit_proposal("task-1", proposal)
 
         receipt = runtime.execute(proposal.proposal_id)
@@ -526,7 +519,7 @@ class OrchestratorTests(unittest.TestCase):
                 )
                 return ActionProposal(
                     new_id("proposal"), self.provider_id,
-                    context.based_on_snapshot, actions[0], actions,
+                    context.based_on_snapshot, actions,
                 )
 
         class ObservationRecordingExecutor(FakeExecutor):
@@ -719,7 +712,7 @@ class OrchestratorTests(unittest.TestCase):
             proposal_id=new_id("proposal"),
             source="fixture",
             based_on_snapshot=observed.snapshot_id,
-            action=Action(ActionType.APPLICATION_LAUNCH, parameters={"app_id": "dde-computer"}),
+            actions=(Action(ActionType.APPLICATION_LAUNCH, parameters={"app_id": "dde-computer"}),),
         )
         runtime.submit_proposal("task-1", proposal)
 

@@ -24,11 +24,9 @@ Not migrated:
 - trajectory images, historical logs, caches and native client utilities;
 - rollout voting (a later experiment; track it in the v2 regression and extension documentation).
 
-Default configuration uses `CUA_BACKEND_MODE=embedded`. Model configuration is
-read from `CUA_MODEL_BASE_URL`, `CUA_MODEL`, `CUA_MODEL_API_KEY`,
-`CUA_MODEL_TIMEOUT`, `CUA_MODEL_TLS_VERIFY`, and `CUA_MODEL_TRUST_ENV`.
-`CUA_MAX_TOKENS` defaults to 1024 and `CUA_MAX_RESPONSE_CHARS` defaults to
-16384. Each prediction accepts one or more ordered `computer_use` tool calls as
+Model behavior and endpoint configuration come from the JSON
+`proposal_provider` object. `CUA_MODEL_API_KEY` is the only model environment
+input and carries the endpoint secret. Each prediction accepts one or more ordered `computer_use` tool calls as
 one Proposal; oversized or malformed responses are rejected before they can
 become a proposal. Actions that depend on UI changes from earlier actions belong
 in a later prediction after a new observation.

@@ -92,7 +92,7 @@ class ProviderRegistryTests(unittest.TestCase):
         })[0]
         proposal = ActionProposal(
             "proposal-policy", "fixture", "snapshot-policy",
-            Action(ActionType.KEYBOARD_TEXT, parameters={"text": "blocked"}),
+            (Action(ActionType.KEYBOARD_TEXT, parameters={"text": "blocked"}),),
         )
         contract = TaskContract(
             "policy-task", "type text", TaskPermissions(frozenset(), frozenset())

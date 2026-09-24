@@ -1,2 +1,0 @@
-event_id,task_id,sequence,occurred_at,event_type,epistemic_type,object_ref,caused_by,snapshot_id,artifact_refs,debug_ref,schema_version
-event-legacy-1,legacy-task,1,2026-01-01T00:00:00Z,decision.created,policy_decision,decision-legacy-1,"[""proposal-event-1""]",snapshot-legacy-1,"[""guard-legacy-1""]",,1

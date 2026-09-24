@@ -63,21 +63,18 @@ class ActionProposal:
     proposal_id: str
     source: str
     based_on_snapshot: str
-    action: Action
-    actions: tuple[Action, ...] = ()
+    actions: tuple[Action, ...]
     claimed_intent: str | None = None
     debug_ref: str | None = None
     schema_version: str = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         if not self.actions:
-            object.__setattr__(self, "actions", (self.action,))
-        elif self.actions[0] != self.action:
-            raise ValueError("proposal.action must equal the first action in actions")
+            raise ValueError("proposal.actions must not be empty")
 
     @property
     def action_sequence(self) -> tuple[Action, ...]:
-        """Full model proposal, with legacy single-action compatibility."""
+        """Return the ordered actions proposed for one execution boundary."""
         return self.actions
 
 

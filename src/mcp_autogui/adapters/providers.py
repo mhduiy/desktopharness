@@ -29,20 +29,16 @@ def register_builtin_providers() -> None:
 
 def _validate_qwen(config: dict[str, Any], location: str) -> None:
     _only_keys(config, {
-        "kind", "mode", "model", "base_url", "timeout_seconds", "tls_verify", "trust_env",
-        "agent_type", "rollout_nums", "temperature", "top_p", "max_tokens",
+        "kind", "model", "base_url", "timeout_seconds", "tls_verify", "trust_env",
+        "temperature", "top_p", "max_tokens",
         "max_response_chars", "max_history_turns", "coordinate_type", "resize_factor",
     }, location)
-    mode = _required_string(config, "mode", location)
-    if mode not in {"embedded", "http"}:
-        raise ValueError(f"{location}.mode must be 'embedded' or 'http'")
     _optional_string(config, "model", location)
     _optional_string(config, "base_url", location)
     _optional_positive_int(config, "timeout_seconds", location)
     _optional_bool(config, "tls_verify", location)
     _optional_bool(config, "trust_env", location)
-    _optional_string(config, "agent_type", location)
-    for name in ("rollout_nums", "max_tokens", "max_history_turns", "resize_factor"):
+    for name in ("max_tokens", "max_history_turns", "resize_factor"):
         _optional_positive_int(config, name, location)
     _optional_minimum_int(config, "max_response_chars", 1024, location)
     _optional_unit_interval(config, "temperature", location)

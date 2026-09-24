@@ -63,7 +63,7 @@ class Compositor:
 class Executor:
     def execute(self, proposal):
         now = utc_now()
-        return ExecutionReceipt(new_id("execution"), proposal.proposal_id, ExecutionStatus.DELIVERED, proposal.action, now, now)
+        return ExecutionReceipt(new_id("execution"), proposal.proposal_id, ExecutionStatus.DELIVERED, proposal.actions[0], now, now)
 
 
 class FailingExecutor:
@@ -90,7 +90,7 @@ class ProposalProvider:
             new_id("proposal"),
             self.provider_id,
             context.based_on_snapshot,
-            Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),
+            (Action(ActionType.POINTER_CLICK, Point(100, 100), "desktop-logical"),),
         )
 
 
@@ -146,7 +146,7 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(public["status"], "completed")
         self.assertNotIn("object", public)
         self.assertEqual(response["protocol_version"], 2)
-        self.assertEqual(response["object"]["schema_revision"], "2.1-p6")
+        self.assertEqual(response["object"]["schema_revision"], "2.2")
         self.assertEqual(response["object"]["proposal_model"]["actions"], "ordered-sequence")
         self.assertEqual(response["object"]["adapter"]["adapter_id"], "portable-fixture")
         self.assertIn("pointer.click", response["object"]["actions"])
@@ -172,10 +172,10 @@ class FacadeTests(unittest.TestCase):
             proposal={
                 "source": "controller",
                 "based_on_snapshot": observed["object_ref"],
-                "action": {
+                "actions": [{
                     "type": "pointer.click",
                     "coordinate": {"space": "desktop-logical", "x": 100, "y": 100},
-                },
+                }],
                 "claimed_intent": "navigation",
             },
         )
@@ -191,7 +191,7 @@ class FacadeTests(unittest.TestCase):
         expanded = self.facade.handle_diagnostic(
             "trace", task_id="portable-task", object_ref=proposed["object_ref"]
         )
-        self.assertEqual(expanded["object"]["action"]["type"], "pointer.click")
+        self.assertEqual(expanded["object"]["actions"][0]["type"], "pointer.click")
 
         pending = self.facade.handle_diagnostic(
             "execute", task_id="portable-task", proposal_id=proposed["object_ref"]
@@ -327,7 +327,7 @@ class FacadeTests(unittest.TestCase):
             parse_action_proposal(
                 {
                     "semantic_intent": "navigation",
-                    "action": {"type": "done"},
+                    "actions": [{"type": "done"}],
                 },
                 "snapshot-1",
             )
@@ -335,10 +335,20 @@ class FacadeTests(unittest.TestCase):
             parse_action_proposal(
                 {
                     "expected_effect": {"opened": True},
-                    "action": {"type": "done"},
+                    "actions": [{"type": "done"}],
                 },
                 "snapshot-1",
             )
+        with self.assertRaisesRegex(ValueError, "proposal.action"):
+            parse_action_proposal({"action": {"type": "done"}}, "snapshot-1")
+        with self.assertRaises(ValueError):
+            parse_action_proposal(
+                {"actions": [{"type": "keyboard.text_input", "text": "legacy"}]},
+                "snapshot-1",
+            )
+
+        response = self.facade.handle_diagnostic("verify", task_contract=TASK)
+        self.assertEqual(response["error"]["code"], ReasonCode.UNSUPPORTED_OPERATION)
 
     def test_manual_proposal_accepts_an_ordered_action_sequence(self):
         proposal = parse_action_proposal(
@@ -392,8 +402,8 @@ class QwenProposalAdapterTests(unittest.TestCase):
         context, store = self.context_and_store()
         provider = QwenCUAProposalProvider(Backend(["pyautogui.click(500, 250)"]), store)
         proposal = provider.propose(context)
-        self.assertEqual(proposal.action.coordinate, Point(900, 500))
-        self.assertEqual(proposal.action.coordinate_space, "desktop-logical")
+        self.assertEqual(proposal.actions[0].coordinate, Point(900, 500))
+        self.assertEqual(proposal.actions[0].coordinate_space, "desktop-logical")
 
     def test_qwen_multiple_actions_form_one_ordered_proposal(self):
         context, store = self.context_and_store()

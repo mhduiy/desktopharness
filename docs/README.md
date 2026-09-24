@@ -1,12 +1,12 @@
 # 文档导航
 
-项目的当前架构、接口和验收要求均以 v2 文档为准；v2.2 是目标方案，当前代码实现仍为 v2.1。v2.2 允许破坏性变更，直接删除旧版本兼容代码。不要以日期记录、旧
+项目的当前架构、接口和验收要求均以 v2 文档为准；v2.2 迁移已完成 S1，协议和配置已收敛到 schema 2，执行链仍待 S2 精简。v2.2 允许破坏性变更，直接删除旧版本兼容代码。不要以日期记录、旧
 `qwen_cua_*` 工具说明或 OmniParser 实验记录推断当前行为。
 
 ## 当前规范
 
 - [v2.2 精简架构设计](treeland-autoui-mcp-v2-design.md)：整体简化目标、核心能力、运行态与记录职责、协议及迁移边界。
-- [v2.2 实施指南](treeland-autoui-mcp-v2-implementation.md)：S0–S5 实施顺序、候选提交单元、删除项、保留能力和验收条件；运行时仍为 v2.1。
+- [v2.2 实施指南](treeland-autoui-mcp-v2-implementation.md)：S0–S5 实施顺序、候选提交单元、删除项、保留能力、完成状态和验收条件。
 - [v2 手工验收与回归计划](manual-test-guide.md)：真实桌面测试前提、测试矩阵、记录格式和通过标准。
 - [v2 项目评分卡](PROJECT_SCORECARD.md)：固定的 release 评分维度、否决项、指标和当前基线评分。
 
@@ -20,5 +20,5 @@ import 或命令。接入真实的新平台时，需要在 `desktop_backend.py` 
 `treeland-deepin`，因此这不是已经完成的跨平台运行时支持。
 
 OmniParser 默认关闭；启用后仅作为 v2 的 Evidence/Grounding Provider。它不注册
-旧的直连执行工具，且其概率性证据不能绕过提案校验、执行回执和完成断言。当前 v2.1 仍含
-PolicyDecision/Guard；v2.2 计划删除这些中间对象，保留其必要的技术校验与执行事实。
+旧的直连执行工具，且其概率性证据不能绕过提案校验、执行回执和完成断言。S1 完成后的执行链仍含
+PolicyDecision/Guard；S2 将删除这些中间对象，保留其必要的技术校验与执行事实。

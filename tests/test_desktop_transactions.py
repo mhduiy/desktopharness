@@ -65,7 +65,7 @@ class DesktopTransactionRunnerTests(unittest.TestCase):
                     "proposal-1",
                     "desktop-tool",
                     observed.snapshot_id,
-                    Action(ActionType.DONE),
+                    (Action(ActionType.DONE),),
                 ),
             )
         )

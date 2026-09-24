@@ -105,7 +105,6 @@ class QwenCUAProposalProvider:
             proposal_id=new_id("proposal"),
             source="qwen-cua",
             based_on_snapshot=context.based_on_snapshot,
-            action=actions[0],
             actions=actions,
             claimed_intent=None,
             debug_ref=debug_ref,

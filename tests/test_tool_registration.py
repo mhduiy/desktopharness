@@ -54,7 +54,7 @@ class ApplicationLauncher:
             execution_id=new_id("execution"),
             proposal_id=proposal.proposal_id,
             status=ExecutionStatus.DELIVERED,
-            executed_action=proposal.action,
+            executed_action=proposal.actions[0],
             started_at=utc_now(),
             finished_at=utc_now(),
         )
@@ -152,7 +152,7 @@ class ToolRegistrationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["returncode"], 0)
-        self.assertEqual(launcher.proposals[0].action.parameters["app_id"], "dde-computer")
+        self.assertEqual(launcher.proposals[0].actions[0].parameters["app_id"], "dde-computer")
 
     def test_omniparser_configuration_registers_no_legacy_execution_tools(self):
         mcp = self.compose()

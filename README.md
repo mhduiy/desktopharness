@@ -26,7 +26,7 @@ Normal responses are compact envelopes containing a public task status and an
 `object_ref`. Use `gui_diagnostic` for `observe`, `propose`, `decide`,
 `execute`, `evaluate`, and `trace` when inspecting one controller stage or an
 object. The default policy requires confirmation when an action has no
-independent semantic evidence; a model's `semantic_intent` is only a claim. An
+independent semantic evidence; a model's `claimed_intent` is only a claim. An
 execution receipt with `status=delivered` confirms input injection, not
 application or task success.
 
@@ -43,20 +43,16 @@ and the [v2 design](docs/treeland-autoui-mcp-v2-design.md).
 ## Qwen-CUA
 
 The default path uses the embedded Qwen-CUA service in this project; the
-`gui-mcp` backend does not need to be started. Configure the actual
-OpenAI-compatible Qwen model endpoint:
+`gui-mcp` backend does not need to be started. Configure the OpenAI-compatible
+Qwen model endpoint in `config/mcp-autoui.json`. Only the model API key remains
+an environment secret:
 
 ```bash
-export CUA_BACKEND_MODE=embedded
-export CUA_MODEL_BASE_URL=http://127.0.0.1:8000/v1
-export CUA_MODEL=qwen3_rl
 export CUA_MODEL_API_KEY=your-model-api-key   # Optional when model auth is disabled
-export CUA_MODEL_TLS_VERIFY=1                 # Set 0 only for a self-signed test endpoint
 ```
 
-For comparison with the old deployment, set `CUA_BACKEND_MODE=http` and use
-`CUA_BACKEND_URL`, `CUA_BACKEND_API_KEY`, and `CUA_TLS_VERIFY`. HTTP mode is an
-optional compatibility path, not the default dependency.
+The former gui-mcp HTTP backend, binary/JSON fallback, and `CUA_BACKEND_*`
+configuration are no longer supported.
 
 All Qwen interaction goes through the unified lifecycle and diagnostic MCP
 tools; the legacy `qwen_cua_*` tools were removed. The embedded backend is
@@ -70,7 +66,7 @@ containing a non-empty ordered action sequence:
    observe -> propose (Qwen) -> decide -> guard recheck -> execute ->
    evaluate -> reduce state, until the task blocks or terminates.
 2. Fine-grained inspection uses `gui_diagnostic` instead: `observe`,
-   `propose`, `decide`, `execute`, `evaluate` (or `verify`), and `trace`.
+   `propose`, `decide`, `execute`, `evaluate`, and `trace`.
    It expands stored objects such as model output (`debug_ref`), execution
    receipts, assertion results, and Attribution. `status` and `reset` remain
    lifecycle operations on `gui_run`.
@@ -96,9 +92,7 @@ mark the task complete while an assertion is unverified.
 
 The embedded service keeps each prediction pending and commits it to Qwen
 history only after receiving the actual local execution result. Success,
-partial execution, rejection, and failure are fed back explicitly. The old HTTP
-compatibility backend still resets a session when it cannot accept execution
-feedback.
+partial execution, rejection, and failure are fed back explicitly.
 
 OmniParser is disabled by default. When enabled, it is a read-only v2 Evidence/Grounding Provider: it registers no legacy direct-execution tools and cannot bypass Proposal, PolicyDecision, Guard, Receipt, or Assertion processing.
 
@@ -115,6 +109,11 @@ Configure Codex with:
 ```bash
 codex mcp add desktop_harness_mcp --url http://127.0.0.1:8651/mcp
 ```
+
+The server binds to loopback by default. A trusted reverse proxy must keep its
+upstream on loopback and provide TLS and authentication. A direct non-loopback
+bind requires `transport.auth.mode="bearer-token"`, a `token_env` setting, and
+an `Authorization: Bearer ...` header from every client.
 
 ## Installation
 
@@ -137,7 +136,8 @@ uv sync
 uv run treeland-autogui-mcp --config config/mcp-autoui.json
 ```
 
-Expose port `8000` and note the test machine IP.
+Do not expose the unauthenticated MCP process. Use a TLS/authenticated reverse
+proxy with a loopback upstream, or configure the server's bearer-token mode.
 
 ### 2) Control machine (LangChain agent)
 

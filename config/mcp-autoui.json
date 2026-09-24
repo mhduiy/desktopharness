@@ -1,23 +1,23 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "transport": {
     "mode": "streamable-http",
-    "host": "0.0.0.0",
-    "port": 8651
+    "host": "127.0.0.1",
+    "port": 8651,
+    "auth": {
+      "mode": "loopback"
+    }
   },
   "desktop_backend": {
     "kind": "treeland-deepin"
   },
   "proposal_provider": {
     "kind": "qwen-cua",
-    "mode": "embedded",
     "model": "qwen3_rl",
     "base_url": "http://10.30.33.14:8001/v1",
     "timeout_seconds": 120,
     "tls_verify": true,
     "trust_env": false,
-    "agent_type": "cua",
-    "rollout_nums": 1,
     "temperature": 0.1,
     "top_p": 0.5,
     "max_tokens": 1024,
@@ -40,7 +40,7 @@
     }
   },
   "audit": {
-    "directory": ".autoui-audit",
+    "directory": ".autoui-audit-v2",
     "retention_days": 7,
     "max_gib": 16
   }

@@ -22,6 +22,8 @@ class ServerConfig:
     transport_mode: str
     transport_host: str
     transport_port: int
+    transport_auth_mode: str
+    transport_token_env: str | None
     desktop_backend: str
     proposal_provider: dict[str, Any]
     policy_providers: dict[str, Any]
@@ -38,6 +40,7 @@ class ServerConfig:
                 "mode": self.transport_mode,
                 "host": self.transport_host,
                 "port": self.transport_port,
+                "auth": {"mode": self.transport_auth_mode},
             },
             "desktop_backend": self.desktop_backend,
             "proposal_provider": provider,
@@ -45,46 +48,6 @@ class ServerConfig:
             "evidence_providers": self.evidence_providers,
             "audit": self.audit,
         }
-
-
-LEGACY_BEHAVIOUR_ENVIRONMENT = frozenset({
-    "SSE_HOST",
-    "SSE_PORT",
-    "MCP_TRANSPORT",
-    "CUA_BACKEND_MODE",
-    "CUA_BACKEND_URL",
-    "CUA_BACKEND_TIMEOUT",
-    "CUA_TLS_VERIFY",
-    "CUA_HTTP_TRUST_ENV",
-    "CUA_AGENT_TYPE",
-    "CUA_ROLLOUT_NUMS",
-    "CUA_MODEL_BASE_URL",
-    "CUA_MODEL",
-    "CUA_MODEL_TIMEOUT",
-    "CUA_MODEL_TLS_VERIFY",
-    "CUA_MODEL_TRUST_ENV",
-    "CUA_MAX_TOKENS",
-    "CUA_MAX_RESPONSE_CHARS",
-    "CUA_TOP_P",
-    "CUA_TEMPERATURE",
-    "CUA_MAX_HISTORY_TURNS",
-    "CUA_COORDINATE_TYPE",
-    "CUA_RESIZE_FACTOR",
-    "GUI_OMNIPARSER_ENABLED",
-    "OMNI_PARSER_SERVER",
-    "GUI_AUDIT_DIR",
-    "GUI_AUDIT_RETENTION_DAYS",
-    "GUI_AUDIT_MAX_GIB",
-})
-
-
-def ignored_legacy_environment() -> tuple[str, ...]:
-    """List legacy behaviour variables ignored when JSON config is selected.
-
-    ``CUA_MODEL_API_KEY`` and backend API keys are deliberately excluded: they
-    remain the supported secret-only environment inputs.
-    """
-    return tuple(sorted(name for name in LEGACY_BEHAVIOUR_ENVIRONMENT if os.getenv(name) is not None))
 
 
 def load_server_config(path: str | Path) -> ServerConfig:
@@ -105,16 +68,33 @@ def load_server_config(path: str | Path) -> ServerConfig:
         },
         "MCP config",
     )
-    if raw.get("schema_version") != 1:
-        raise ValueError("MCP config schema_version must be 1")
+    if raw.get("schema_version") != 2:
+        raise ValueError("MCP config schema_version must be 2")
 
     transport = _object(raw, "transport")
-    _only_keys(transport, {"mode", "host", "port"}, "transport")
+    _only_keys(transport, {"mode", "host", "port", "auth"}, "transport")
     mode = _string(transport, "mode")
     if mode not in {"sse", "streamable-http"}:
         raise ValueError("transport.mode must be 'sse' or 'streamable-http'")
     host = _string(transport, "host")
     port = _positive_int(transport, "port")
+    auth = _object(transport, "auth", default={"mode": "loopback"})
+    _only_keys(auth, {"mode", "token_env"}, "transport.auth")
+    auth_mode = _string(auth, "mode")
+    if auth_mode not in {"loopback", "trusted-proxy", "bearer-token"}:
+        raise ValueError(
+            "transport.auth.mode must be 'loopback', 'trusted-proxy', or 'bearer-token'"
+        )
+    loopback_hosts = {"127.0.0.1", "::1"}
+    token_env: str | None = None
+    if auth_mode in {"loopback", "trusted-proxy"} and host not in loopback_hosts:
+        raise ValueError(f"transport.auth.mode={auth_mode} requires a loopback host")
+    if auth_mode == "bearer-token":
+        token_env = _string(auth, "token_env")
+        if not os.getenv(token_env, "").strip():
+            raise ValueError(f"transport bearer token environment variable is empty: {token_env}")
+    elif "token_env" in auth:
+        raise ValueError("transport.auth.token_env is only valid for bearer-token mode")
 
     backend = _object(raw, "desktop_backend", default={"kind": DEFAULT_DESKTOP_BACKEND})
     _only_keys(backend, {"kind"}, "desktop_backend")
@@ -146,6 +126,8 @@ def load_server_config(path: str | Path) -> ServerConfig:
         transport_mode=mode,
         transport_host=host,
         transport_port=port,
+        transport_auth_mode=auth_mode,
+        transport_token_env=token_env,
         desktop_backend=backend_id,
         proposal_provider=proposal_provider,
         policy_providers=policy_providers,

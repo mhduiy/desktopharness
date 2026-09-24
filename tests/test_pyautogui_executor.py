@@ -16,7 +16,7 @@ class PyAutoGUIExecutorTests(unittest.TestCase):
     def test_drag_uses_calibrated_default_duration(self):
         module = RecordingPyAutoGUI()
         action = Action(ActionType.POINTER_DRAG, Point(20, 30), "desktop-logical")
-        proposal = ActionProposal(new_id("proposal"), "test", "snapshot-1", action)
+        proposal = ActionProposal(new_id("proposal"), "test", "snapshot-1", (action,))
 
         receipt = PyAutoGUIExecutor(module).execute(proposal)
 
@@ -28,7 +28,7 @@ class PyAutoGUIExecutorTests(unittest.TestCase):
         action = Action(
             ActionType.POINTER_DRAG, Point(20, 30), "desktop-logical", {"duration": 2}
         )
-        proposal = ActionProposal(new_id("proposal"), "test", "snapshot-1", action)
+        proposal = ActionProposal(new_id("proposal"), "test", "snapshot-1", (action,))
 
         PyAutoGUIExecutor(module).execute(proposal)
 

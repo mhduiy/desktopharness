@@ -97,10 +97,10 @@ class TreelandDeepinTools:
                 proposal_id=new_id("proposal"),
                 source="desktop-shortcut",
                 based_on_snapshot=snapshot.snapshot_id,
-                action=Action(
+                actions=(Action(
                     ActionType.PLATFORM_INVOKE,
                     parameters={"capability_id": resolved_id},
-                ),
+                ),),
             ),
         )
         raw_before = self._store.require(outcome.snapshot.raw_artifact_ref)
@@ -193,10 +193,10 @@ class TreelandDeepinTools:
                 proposal_id=new_id("proposal"),
                 source="desktop-application-launch",
                 based_on_snapshot=snapshot.snapshot_id,
-                action=Action(
+                actions=(Action(
                     ActionType.APPLICATION_LAUNCH,
                     parameters={"app_id": resolved_app_id},
-                ),
+                ),),
                 claimed_intent="open_application",
             ),
         )

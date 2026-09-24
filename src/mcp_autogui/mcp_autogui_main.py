@@ -42,7 +42,7 @@ def mcp_autogui_main(
     )
     compositor = desktop_backend.compositor
     proposal_runtime = create_proposal_provider(
-        proposal_provider_config or {"kind": "qwen-cua", "mode": "embedded"}, store
+        proposal_provider_config or {"kind": "qwen-cua"}, store
     )
     evidence_providers = create_evidence_providers(
         evidence_provider_config or {"compositor_window": {"enabled": True}},

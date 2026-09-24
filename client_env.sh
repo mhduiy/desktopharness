@@ -272,9 +272,8 @@ if [[ ! -f "${MCP_CONFIG_PATH}" ]]; then
     exit 1
 fi
 
-# JSON configuration owns runtime behaviour.  Keep legacy settings in the
-# child environment so the server can report exactly which settings it ignores;
-# secrets such as CUA_MODEL_API_KEY remain supported environment inputs.
+# JSON configuration owns runtime behaviour; only secrets such as
+# CUA_MODEL_API_KEY remain supported environment inputs.
 if [[ -z "${CUA_MODEL_API_KEY:-}" ]]; then
     echo "CUA_MODEL_API_KEY must be set in ${CLIENT_ENV_FILE} before starting Qwen-CUA." >&2
     exit 1

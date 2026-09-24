@@ -25,10 +25,9 @@ def main(argv: list[str] | None = None) -> None:
     result = {
         "effective_config": config.effective_config(),
         "treeland_debug": _treeland_tree_check(),
-        "proposal_provider": {
-            "kind": config.proposal_provider["kind"],
-            "mode": config.proposal_provider["mode"],
-            "configured": bool(config.proposal_provider.get("base_url")),
+            "proposal_provider": {
+                "kind": config.proposal_provider["kind"],
+                "configured": bool(config.proposal_provider.get("base_url")),
         },
         "mcp_describe": _mcp_describe_check(mcp_url),
     }

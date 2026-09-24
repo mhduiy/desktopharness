@@ -38,10 +38,13 @@ class EntrypointTests(unittest.TestCase):
                 self.transport = selected_transport
 
         config = {
-            "schema_version": 1,
-            "transport": {"mode": "streamable-http", "host": "127.0.0.1", "port": 8651},
+            "schema_version": 2,
+            "transport": {
+                "mode": "streamable-http", "host": "127.0.0.1", "port": 8651,
+                "auth": {"mode": "loopback"},
+            },
             "desktop_backend": {"kind": "treeland-deepin"},
-            "proposal_provider": {"kind": "qwen-cua", "mode": "embedded"},
+            "proposal_provider": {"kind": "qwen-cua"},
         }
         with TemporaryDirectory() as directory:
             path = Path(directory) / "mcp-autoui.json"
@@ -73,15 +76,18 @@ class EntrypointTests(unittest.TestCase):
             [
                 (
                     "treeland-deepin",
-                    {"kind": "qwen-cua", "mode": "embedded"},
+                    {"kind": "qwen-cua"},
                     {},
                     {},
                     {},
                     {
                         "config_path": str(path),
-                        "transport": {"mode": "streamable-http", "host": "127.0.0.1", "port": 8651},
+                        "transport": {
+                            "mode": "streamable-http", "host": "127.0.0.1", "port": 8651,
+                            "auth": {"mode": "loopback"},
+                        },
                         "desktop_backend": "treeland-deepin",
-                        "proposal_provider": {"kind": "qwen-cua", "mode": "embedded"},
+                        "proposal_provider": {"kind": "qwen-cua"},
                         "policy_providers": {},
                         "evidence_providers": {},
                         "audit": {},

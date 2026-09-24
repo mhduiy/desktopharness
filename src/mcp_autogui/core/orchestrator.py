@@ -387,7 +387,7 @@ class CoreOrchestrator:
         aggregate_error = None
 
         for action_index, action in enumerate(proposal.action_sequence):
-            single = replace(proposal, action=action, actions=())
+            single = replace(proposal, actions=(action,))
             try:
                 result = self.executor.execute(single)
             except Exception:

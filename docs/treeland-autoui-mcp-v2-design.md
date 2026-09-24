@@ -1,6 +1,6 @@
 # AutoUI MCP v2.2 架构
 
-本文定义 v2.2 的目标架构。v2.1 仍是当前代码实现；具体迁移范围和完成状态见 [`treeland-autoui-mcp-v2-implementation.md`](treeland-autoui-mcp-v2-implementation.md)。
+本文定义 v2.2 的目标架构。当前迁移已完成 S1：协议和配置使用 schema 2，执行链仍待 S2 精简；具体范围和完成状态见 [`treeland-autoui-mcp-v2-implementation.md`](treeland-autoui-mcp-v2-implementation.md)。
 
 ## 核心思想：简化、紧凑、功能完整
 

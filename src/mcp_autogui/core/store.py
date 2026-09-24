@@ -93,6 +93,8 @@ class JsonAuditObjectStore(ObjectStore):
             return None
         with path.open("r", encoding="utf-8") as handle:
             envelope = json.load(handle)
+        if envelope.get("schema_version") != 2:
+            raise ValueError("audit object schema_version is not supported")
         return _from_audit_primitive(envelope.get("value"), self.artifact_directory)
 
     def clear(self) -> None:
@@ -106,7 +108,7 @@ class JsonAuditObjectStore(ObjectStore):
         try:
             encoded = json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "stored_at": utc_now(),
                     "value": self._to_audit_primitive(reference, value, [0]),
                 },
@@ -117,7 +119,7 @@ class JsonAuditObjectStore(ObjectStore):
             self._remove_artifacts_for_reference(reference)
             encoded = json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "stored_at": utc_now(),
                     "value": {
                         "__audit_unavailable__": {
