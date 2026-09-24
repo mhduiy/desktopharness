@@ -59,6 +59,23 @@ class ServerConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "desktop_backend.kind"):
             load_server_config(self.write_config(config_payload(backend="other-desktop")))
 
+    def test_backend_is_detected_from_the_session_when_not_configured(self):
+        payload = config_payload()
+        del payload["desktop_backend"]
+        with patch.dict("os.environ", {"XDG_SESSION_TYPE": "x11"}):
+            config = load_server_config(self.write_config(payload))
+        self.assertEqual(config.desktop_backend, "x11-deepin")
+        with patch.dict("os.environ", {"XDG_SESSION_TYPE": "wayland"}):
+            config = load_server_config(self.write_config(payload))
+        self.assertEqual(config.desktop_backend, "treeland-deepin")
+
+    def test_missing_backend_with_an_unknown_session_is_rejected(self):
+        payload = config_payload()
+        del payload["desktop_backend"]
+        with patch.dict("os.environ", {"XDG_SESSION_TYPE": "", "WAYLAND_DISPLAY": ""}):
+            with self.assertRaisesRegex(ValueError, "desktop_backend.kind"):
+                load_server_config(self.write_config(payload))
+
     def test_removed_config_versions_and_qwen_modes_are_rejected(self):
         payload = config_payload()
         payload["schema_version"] = 1

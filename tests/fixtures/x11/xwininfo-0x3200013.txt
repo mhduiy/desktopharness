@@ -1,0 +1,22 @@
+xwininfo: Window id: 0x3200013 "org.deepin.dde.lock"
+
+  Absolute upper-left X:  0
+  Absolute upper-left Y:  0
+  Relative upper-left X:  0
+  Relative upper-left Y:  0
+  Width: 640
+  Height: 480
+  Depth: 24
+  Visual: 0x21
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x3200006 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsUnMapped
+  Override Redirect State: yes
+  Corners:  +0+0  -1280+0  -1280-600  +0-600
+  -geometry 640x480+0+0

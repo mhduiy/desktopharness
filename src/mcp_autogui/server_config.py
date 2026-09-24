@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .desktop_backend import DEFAULT_DESKTOP_BACKEND, available_desktop_backends
+from .desktop_backend import available_desktop_backends
 from .provider_registry import (
     validate_evidence_provider,
     validate_proposal_provider,
@@ -50,6 +50,29 @@ class ServerConfig:
             "evidence_providers": self.evidence_providers,
             "audit": self.audit,
         }
+
+
+def detect_desktop_backend() -> str:
+    """Select the desktop backend from the current graphical session.
+
+    The backend has to match how the session is observed and driven, so it is
+    derived from the same session fact the input layer already uses: an X11
+    session needs EWMH observation over XTEST, a Wayland/Treeland session needs
+    the Treeland tree and ydotool.  Deriving it here means one JSON
+    configuration serves both environments.  A ``desktop_backend.kind`` written
+    in the JSON overrides this detection.
+    """
+    session_type = os.getenv("XDG_SESSION_TYPE", "").strip()
+    if session_type == "x11":
+        return "x11-deepin"
+    if session_type == "wayland":
+        return "treeland-deepin"
+    if os.getenv("WAYLAND_DISPLAY"):
+        return "treeland-deepin"
+    raise ValueError(
+        "desktop_backend.kind is required when the session type cannot be "
+        f"detected (XDG_SESSION_TYPE={session_type or 'unset'})"
+    )
 
 
 def load_server_config(path: str | Path) -> ServerConfig:
@@ -98,9 +121,12 @@ def load_server_config(path: str | Path) -> ServerConfig:
     elif "token_env" in auth:
         raise ValueError("transport.auth.token_env is only valid for bearer-token mode")
 
-    backend = _object(raw, "desktop_backend", default={"kind": DEFAULT_DESKTOP_BACKEND})
-    _only_keys(backend, {"kind"}, "desktop_backend")
-    backend_id = _string(backend, "kind")
+    if "desktop_backend" in raw:
+        backend = _object(raw, "desktop_backend")
+        _only_keys(backend, {"kind"}, "desktop_backend")
+        backend_id = _string(backend, "kind")
+    else:
+        backend_id = detect_desktop_backend()
     if backend_id not in available_desktop_backends():
         choices = ", ".join(available_desktop_backends())
         raise ValueError(f"desktop_backend.kind must be one of: {choices}")

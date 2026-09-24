@@ -1,0 +1,22 @@
+xwininfo: Window id: 0x2c00020 "org.deepin.ds.osd"
+
+  Absolute upper-left X:  930
+  Absolute upper-left Y:  840
+  Relative upper-left X:  930
+  Relative upper-left Y:  840
+  Width: 60
+  Height: 60
+  Depth: 32
+  Visual: 0x6e
+  Visual Class: TrueColor
+  Border width: 0
+  Class: InputOutput
+  Colormap: 0x2c00006 (not installed)
+  Bit Gravity State: NorthWestGravity
+  Window Gravity State: NorthWestGravity
+  Backing Store State: NotUseful
+  Save Under State: no
+  Map State: IsUnMapped
+  Override Redirect State: yes
+  Corners:  +930+840  -930+840  -930-180  +930-180
+  -geometry 60x60+930+840

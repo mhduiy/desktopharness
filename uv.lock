@@ -1197,9 +1197,9 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "langchain-core", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "mcp", version = "2.1.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "langchain-core" },
+    { name = "mcp", version = "2.1.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" } },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/5a/5d/1f43b6a14cf448ea47bceb2860e9a6e3b0a911de0719aba43ed3eb927195/langchain_mcp_adapters-0.3.1.tar.gz", hash = "sha256:e08d4a74a0934d558ddb807ecbb8f89466c93a0d06c1fb58974b93b4703de01c" }
 wheels = [
@@ -1217,9 +1217,9 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 dependencies = [
-    { name = "langchain-core", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "mcp", version = "1.29.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
+    { name = "langchain-core" },
+    { name = "mcp", version = "1.29.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" } },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/05/49/f3b8497b64024ab50d10011f27e94d149668fef754da74c1c2ce6ebe4a30/langchain_mcp_adapters-0.3.2.tar.gz", hash = "sha256:61cd1a09597adb619a9bafb0642938ffc2a9463d699a753f7af0420ea46c381a" }
 wheels = [
@@ -1372,20 +1372,20 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 dependencies = [
-    { name = "anyio", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "httpx", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "httpx-sse", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "jsonschema", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "pydantic", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "pydantic-settings", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "pyjwt", extra = ["crypto"], marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "python-multipart", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "pywin32", marker = "python_full_version < '3.14' and sys_platform == 'win32'" },
-    { name = "sse-starlette", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "starlette", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "typing-inspection", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "uvicorn", marker = "(python_full_version < '3.14' and sys_platform == 'win32') or (sys_platform != 'emscripten' and sys_platform != 'win32')" },
+    { name = "anyio" },
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-multipart" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/b5/48/0bb26fdfe7ac16875f534a101ce2405eae192bdef37e7451f2f4507c13ec/mcp-1.29.1.tar.gz", hash = "sha256:1967ba4c315f7a375146209949f45950d18b0efd2f913d7cf3400bc723ee5f04" }
 wheels = [
@@ -1394,8 +1394,8 @@ wheels = [
 
 [package.optional-dependencies]
 cli = [
-    { name = "python-dotenv", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "typer", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
+    { name = "python-dotenv" },
+    { name = "typer" },
 ]
 
 [[package]]
@@ -1406,20 +1406,20 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "anyio", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "httpx2", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "jsonschema", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "mcp-types", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "opentelemetry-api", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "pydantic", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "pyjwt", extra = ["crypto"], marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "python-multipart", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "pywin32", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "sse-starlette", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "starlette", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "typing-inspection", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "uvicorn", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "anyio" },
+    { name = "httpx2" },
+    { name = "jsonschema" },
+    { name = "mcp-types" },
+    { name = "opentelemetry-api" },
+    { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-multipart" },
+    { name = "pywin32" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+    { name = "uvicorn" },
 ]
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/d4/6e/21fb8e5d579dbe21d96ea4d5034200d46d8bdf2261053b5bd041f3c2f612/mcp-2.1.1.tar.gz", hash = "sha256:50b7ba1ebbe117008ea7bdd288234043e69c20b403d6851d19661e6d431a75ef" }
 wheels = [
@@ -1428,8 +1428,8 @@ wheels = [
 
 [package.optional-dependencies]
 cli = [
-    { name = "python-dotenv", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "typer", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "python-dotenv" },
+    { name = "typer" },
 ]
 
 [[package]]
@@ -1437,8 +1437,8 @@ name = "mcp-types"
 version = "2.1.1"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 dependencies = [
-    { name = "pydantic", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/6a/dd/1c4417dc0b722c23a1669032d5f044e41170fe5d4773b488a50fcce98c32/mcp_types-2.1.1.tar.gz", hash = "sha256:77dcbe48fba73cca71a673f2646a5f037a017b7a0a07ac89cec1113028890eda" }
 wheels = [
@@ -1657,7 +1657,7 @@ name = "opentelemetry-api"
 version = "1.44.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/ee/8b/aa9e2d8b8dfa7c946f7dec5d1f8f6ba8eca062f43509a06bdb5ce93d26c0/opentelemetry_api-1.44.0.tar.gz", hash = "sha256:67647e5e9566edcf421166fdf022b3537f818635daa852b289e34604dc6fb33a" }
 wheels = [
@@ -2183,6 +2183,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-xlib"
+version = "0.33"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/86/f5/8c0653e5bb54e0cbdfe27bf32d41f27bc4e12faa8742778c17f2a71be2c0/python-xlib-0.33.tar.gz", hash = "sha256:55af7906a2c75ce6cb280a584776080602444f75815a7aff4d287bb2d7018b32" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/fc/b8/ff33610932e0ee81ae7f1269c890f697d56ff74b9f5b2ee5d9b7fa2c5355/python_xlib-0.33-py2.py3-none-any.whl", hash = "sha256:c3534038d42e0df2f1392a1b30a15a4ff5fdc2b86cfa94f072bf11b10a164398" },
+]
+
+[[package]]
 name = "python-ydotool"
 version = "1.1.1"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -2527,6 +2539,15 @@ wheels = [
 ]
 
 [[package]]
+name = "six"
+version = "1.17.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274" },
+]
+
+[[package]]
 name = "sniffio"
 version = "1.3.1"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -2694,6 +2715,7 @@ dependencies = [
     { name = "pillow" },
     { name = "pyautogui" },
     { name = "pyperclip" },
+    { name = "python-xlib" },
     { name = "requests" },
     { name = "uvicorn" },
 ]
@@ -2734,6 +2756,7 @@ requires-dist = [
     { name = "pyautogui", git = "https://github.com/zorowk/pyautogui.git?branch=master" },
     { name = "pyperclip", specifier = ">=1.9.0" },
     { name = "python-dotenv", marker = "extra == 'langchain'", specifier = ">=1.0.1" },
+    { name = "python-xlib", specifier = ">=0.33" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "uvicorn", specifier = ">=0.34.0" },
 ]
@@ -2886,7 +2909,7 @@ name = "wayland-automation"
 version = "0.2.8"
 source = { git = "https://github.com/zorowk/wayland-automation.git?branch=main#d6670d13a152cbe889726a544e643265c26f0f2a" }
 dependencies = [
-    { name = "evdev", marker = "python_full_version < '3.13' or sys_platform != 'win32'" },
+    { name = "evdev" },
 ]
 
 [[package]]

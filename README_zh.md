@@ -86,8 +86,9 @@ OmniParser 默认关闭；启用后仅作为 v2 的只读 Evidence/Grounding Pro
 ## Codex 连接
 
 服务端配置见 [`config/mcp-autoui.json`](config/mcp-autoui.json)，字段说明和可复制模板见
-[`config/mcp-autoui.example.json`](config/mcp-autoui.example.json)。通过 JSON 的
-`desktop_backend.kind` 选择桌面后端；当前唯一可选值是 `treeland-deepin`。启动时传入：
+[`config/mcp-autoui.example.json`](config/mcp-autoui.example.json)。桌面后端默认按会话类型
+自动选择（`x11` → `x11-deepin`，`wayland` → `treeland-deepin`）；如需固定，可在 JSON 中显式
+写入 `desktop_backend.kind`。启动时传入：
 
 ```bash
 uv run treeland-autogui-mcp --config config/mcp-autoui.json
@@ -105,7 +106,7 @@ codex mcp add desktop_harness_mcp --url http://127.0.0.1:8651/mcp
 服务默认只监听 loopback。可信反向代理必须以 loopback 为 upstream，并负责 TLS 和鉴权；
 直接监听非 loopback 地址时必须配置 `transport.auth.mode="bearer-token"`、`token_env`，客户端每次请求携带 `Authorization: Bearer ...`。
 
-`client_env.sh` 会准备 Treeland 桌面会话、清除旧运行时环境变量，并使用
+`client_env.sh` 会按会话类型准备桌面环境（Treeland/Wayland 或 X11），并使用
 `config/mcp-autoui.json` 启动服务。只有 `AUTOUI_MCP_CONFIG` 可用于覆盖配置文件路径；
 它保留桌面会话变量和 `CUA_MODEL_API_KEY` 等密钥，但不保留运行行为配置。
 

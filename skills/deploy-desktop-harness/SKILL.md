@@ -30,12 +30,14 @@ key is absent.
 
 ## Entry point
 
-Run only `scripts/deploy.sh`. It first verifies `treeland-debug --json tree`; only a failed check
-triggers a matching Debug Treeland build, in-place install, and service restart. All lower-level
-helpers are internal.
+Run only `scripts/deploy.sh`. For a Wayland session it first verifies `treeland-debug --json tree`;
+only a failed check triggers a matching Debug Treeland build, in-place install, and service restart.
+An X11 session skips that step entirely. All lower-level helpers are internal.
 
 DesktopHarness is started through the target checkout's `client_env.sh`; do not invoke the MCP
-binary directly, because `client_env.sh` owns the ydotool, udev, and desktop-session setup.
+binary directly, because `client_env.sh` owns the desktop-session setup (ydotool and its udev rule
+for Wayland, the X11 observation tools for X11). The server selects its backend from the detected
+session type, so the same `config/mcp-autoui.json` serves both compositors.
 
 ```sh
 CUA_MODEL_API_KEY=... scripts/deploy.sh --host <ip> --user <ssh-user> \
@@ -78,9 +80,9 @@ updating, or starting a service is not.
   matching service.
 - Do not expose a network endpoint wider than the user approved. The project configuration currently
   defaults to streamable HTTP at `/mcp`; report the endpoint actually configured.
-- A generic deployment skill cannot make an unsupported compositor work. If the installed
-  DesktopHarness backend does not support the detected compositor, stop at `DEPENDENCY` and report
-  the backend mismatch.
+- Supported compositors are Treeland/Wayland and X11; the backend follows the detected session type
+  (`wayland` → `treeland-deepin`, `x11` → `x11-deepin`). Any other session type stops at
+  `DESKTOP_SESSION` and is reported as an unsupported graphical session.
 - If desktop session discovery, required privilege, repository state, or a probe cannot be
   established, stop at the corresponding failure phase rather than guessing or compensating with
   broad system changes.

@@ -7,6 +7,14 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${TREELAND_SOURCE_URL:=https://github.com/linuxdeepin/treeland.git}"
 : "${TREELAND_REF:=HEAD}"
 
+# Debug Treeland only matters for a Wayland session; on an X11 session the
+# DesktopHarness backend is x11-deepin and never shells out to treeland-debug.
+session_type="$("${script_dir}/remote_session_type.sh" 2>/dev/null || printf 'unknown')"
+if [[ "$session_type" != "wayland" ]]; then
+  printf 'TREELAND_DEBUG_SKIPPED session_type=%s\n' "$session_type"
+  exit 0
+fi
+
 if "${script_dir}/remote_exec.sh" 'timeout 10 treeland-debug --json tree >/dev/null 2>&1'; then
   printf 'TREELAND_DEBUG_OK reused-existing-build\n'
   exit 0

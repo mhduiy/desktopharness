@@ -8,9 +8,6 @@
       "mode": "loopback"
     }
   },
-  "desktop_backend": {
-    "kind": "treeland-deepin"
-  },
   "proposal_provider": {
     "kind": "qwen-cua",
     "model": "qwen3_rl",

@@ -2,7 +2,7 @@
 # Deploy or repair DesktopHarness in the current runtime. This script changes the local machine.
 set -euo pipefail
 
-PROJECT_URL="${DESKTOPHARNESS_REPO_URL:-https://github.com/zorowk/desktopharness.git}"
+PROJECT_URL="${DESKTOPHARNESS_REPO_URL:-https://github.com/mhduiy/desktopharness.git}"
 PROJECT_DIR="${DESKTOPHARNESS_DIR:-}"
 : "${CUA_MODEL_API_KEY:?Set CUA_MODEL_API_KEY in the controlling AI environment.}"
 
@@ -99,10 +99,14 @@ endpoint_port="$(
   sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$config" \
     | head -n 1
 )"
-backend="$(sed -n 's/.*"kind"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -n 1)"
-[[ -n "$endpoint_port" && -n "$backend" ]] || fail DEPENDENCY invalid-desktopharness-config
-if [[ "$backend" == treeland-* ]]; then
-  [[ "$session_type" == wayland ]] || fail DEPENDENCY treeland-backend-requires-wayland
+[[ -n "$endpoint_port" ]] || fail DEPENDENCY invalid-desktopharness-config
+# The backend follows the session type, mirroring server_config.detect_desktop_backend().
+case "$session_type" in
+  wayland) backend="treeland-deepin" ;;
+  x11)     backend="x11-deepin" ;;
+  *)       fail DESKTOP_SESSION unsupported-graphical-session ;;
+esac
+if [[ "$session_type" == wayland ]]; then
   run_as_desktop env "${session_env_args[@]}" treeland-debug --json tree >/dev/null \
     || fail DEPENDENCY treeland-backend-unavailable-in-desktop-session
 fi

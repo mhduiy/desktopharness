@@ -92,10 +92,12 @@ Start with the [documentation index](docs/README.md). Manual acceptance and repe
 
 ## Codex connection
 
-`client_env.sh` prepares the Treeland session, clears obsolete runtime
-environment settings, and starts the server with `config/mcp-autoui.json`.
-Override the configuration path only with `AUTOUI_MCP_CONFIG`; it keeps session
-variables and secrets such as `CUA_MODEL_API_KEY`, but not runtime behaviour.
+`client_env.sh` prepares the desktop session (Treeland/Wayland or X11) and
+starts the server with `config/mcp-autoui.json`. The desktop backend follows the
+session type by default (`x11` → `x11-deepin`, `wayland` → `treeland-deepin`);
+pin it in the JSON with `desktop_backend.kind` when needed. Override the
+configuration path only with `AUTOUI_MCP_CONFIG`; it keeps session variables and
+secrets such as `CUA_MODEL_API_KEY`, but not runtime behaviour.
 Configure Codex with:
 
 ```bash

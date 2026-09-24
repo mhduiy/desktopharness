@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+# Prepare a Deepin desktop session and start the DesktopHarness MCP server.
+#
+# The script is session-aware. It detects whether the target desktop runs on
+# Treeland/Wayland or on X11 and prepares only what that session needs:
+#
+#   * wayland (Treeland): build ydotool and install its udev rule for input
+#     injection, apply the Treeland mouse-acceleration profile, and export the
+#     Wayland session variables.
+#   * x11: ensure the EWMH observation tools (xwininfo, xprop, xrandr, xdotool)
+#     and a screenshot backend are present; input uses the X server's XTEST
+#     extension.
+#
+# The MCP server selects its desktop backend from the session type at runtime,
+# so one JSON configuration serves both environments. Runtime behaviour stays
+# in that JSON; only the config path (AUTOUI_MCP_CONFIG) and secrets such as
+# CUA_MODEL_API_KEY are read from the environment.
 
 # 加载本机私密配置；文件不存在时继续使用脚本原有默认值。
 CLIENT_ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,29 +60,79 @@ fi
 #关闭签名限制
 #sudo dbus-send --print-reply --type=method_call --system --dest=com.deepin.daemon.ACL /org/deepin/security/hierarchical/Control org.deepin.security.hierarchical.Control.SetMode boolean:false
 
-# install missing base packages
-apt_packages=(
+# ---------------------------------------------------------------------------
+# Session detection
+# ---------------------------------------------------------------------------
+# Prefer the value the display manager exported. When the script runs outside a
+# graphical session (bare tty / SSH) that value is "tty" or unset, so fall back
+# to the Wayland socket; if nothing identifies the session we keep the
+# historical target and assume Treeland/Wayland.
+detect_session_type() {
+    case "${XDG_SESSION_TYPE:-}" in
+        wayland|x11) printf '%s' "${XDG_SESSION_TYPE}"; return 0 ;;
+    esac
+    if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+        printf 'wayland'
+        return 0
+    fi
+    printf 'unknown'
+}
+
+SESSION_TYPE="$(detect_session_type)"
+if [[ "${SESSION_TYPE}" == "unknown" ]]; then
+    echo "No graphical session detected; assuming a Treeland/Wayland session." >&2
+    export DISPLAY="${DISPLAY:-:0}"
+    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-${XDG_RUNTIME_DIR}/treeland.socket}"
+    export QT_WAYLAND_SHELL_INTEGRATION="xdg-shell;wl-shell;ivi-shell;qt-shell;"
+    export XDG_SESSION_DESKTOP=Deepin
+    export GDMSESSION=Wayland
+    SESSION_TYPE="wayland"
+fi
+# Keep XDG_SESSION_TYPE exported as the single source of truth: the MCP server
+# derives its backend from it, and the pyautogui fork picks its injection
+# backend (XTEST vs ydotool) from the same value.
+export XDG_SESSION_TYPE="${SESSION_TYPE}"
+echo "Target desktop session: ${SESSION_TYPE}" >&2
+
+# ---------------------------------------------------------------------------
+# Packages
+# ---------------------------------------------------------------------------
+apt_packages_common=(
     python3.12-venv
-    wtype
-    wayland-utils
-    xdotool
-    grim
-    wl-clipboard
     curl
     build-essential
     pkg-config
     cmake
     ninja-build
-    libinput-tools
-    gir1.2-atspi-2.0
-    python3-pyatspi
-    python3-gi
     python3-dev
     libcairo2-dev
     libgirepository-2.0-dev
-    scdoc
-    wlrctl
+    gir1.2-atspi-2.0
+    python3-pyatspi
+    python3-gi
 )
+apt_packages_treeland=(
+    wtype
+    wayland-utils
+    grim
+    wl-clipboard
+    wlrctl
+    libinput-tools
+    scdoc
+)
+apt_packages_x11=(
+    xdotool
+    x11-utils
+    x11-xserver-utils
+    scrot
+)
+
+echo "[1/4] Install ${SESSION_TYPE} session packages"
+case "${SESSION_TYPE}" in
+    x11) apt_packages=("${apt_packages_common[@]}" "${apt_packages_x11[@]}") ;;
+    *)   apt_packages=("${apt_packages_common[@]}" "${apt_packages_treeland[@]}") ;;
+esac
+
 missing_apt_packages=()
 for package in "${apt_packages[@]}"; do
     if ! dpkg-query -W -f='${Status}' "${package}" 2>/dev/null | grep -q '^install ok installed$'; then
@@ -84,13 +150,12 @@ fi
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PROJECT_ROOT}/.venv"
-TMP_BASE="$(mktemp -d /tmp/treeland-autotests-deps.XXXXXX)"
+TMP_BASE="$(mktemp -d /tmp/desktopharness-deps.XXXXXX)"
 YDOTOOL_UDEV_RULE_SOURCE="${PROJECT_ROOT}/udev/99-ydotoold-mouse.rules"
 YDOTOOL_UDEV_RULE_TARGET="/etc/udev/rules.d/99-ydotoold-mouse.rules"
 
 REPO_4_URL="https://github.com/ReimuNotMoe/ydotool.git"
 REPO_4_DIR="${TMP_BASE}/ydotool"
-MOUSE_DCONFIG_ARGS=()
 
 # uv index mirrors
 export UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple/"
@@ -103,6 +168,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ---------------------------------------------------------------------------
+# Treeland/Wayland preparation
+# ---------------------------------------------------------------------------
 install_ydotool() {
   if command -v ydotool >/dev/null 2>&1; then
     echo "ydotool is already installed; skipping."
@@ -140,53 +208,6 @@ install_ydotool_udev_rule() {
   sudo install -m 0644 "${YDOTOOL_UDEV_RULE_SOURCE}" "${YDOTOOL_UDEV_RULE_TARGET}"
   sudo udevadm control --reload-rules
 }
-
-echo "[1/7] Optional ydotool install"
-install_ydotool
-install_ydotool_udev_rule || exit 1
-
-echo "[2/7] Install uv"
-
-export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-if ! command -v uv >/dev/null 2>&1; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    command -v uv >/dev/null 2>&1 || {
-        echo "uv install failed. Ensure ~/.cargo/bin or ~/.local/bin is in PATH." >&2
-        exit 1
-    }
-fi
-
-echo "[3/7] Install python dependencies via uv"
-uv sync
-
-if /usr/bin/python3 - <<'PY'
-import pyatspi
-print(pyatspi.__name__)
-PY
-then
-  echo "pyatspi import check: OK"
-else
-  cat <<'EOF'
-Warning: pyatspi is not available in the current environment.
-dogtail may require system-level AT-SPI packages from your distro.
-Example (Debian/Ubuntu):
-  sudo apt-get install -y python3-pyatspi python3-gi gir1.2-atspi-2.0
-EOF
-fi
-
-# 启动测试机ydotoold服务
-if [[ "${XDG_SESSION_TYPE:-}" == "tty" && -z "${WAYLAND_DISPLAY:-}" ]]; then
-    echo "Variable not set, ready to set."
-    export DISPLAY=:0
-    export WAYLAND_DISPLAY="${XDG_RUNTIME_DIR}/treeland.socket"
-    export XDG_SESSION_TYPE=wayland
-    export QT_WAYLAND_SHELL_INTEGRATION="xdg-shell;wl-shell;ivi-shell;qt-shell;"
-    export XDG_SESSION_DESKTOP=Deepin
-    export GDMSESSION=Wayland
-    export YDOTOOL_SOCKET="${XDG_RUNTIME_DIR}/.ydotool_socket"
-fi
-
-echo "Wayland environment variables have been set." >&2
 
 USER_UID="$(id -u)"
 USER_GID="$(id -g)"
@@ -234,38 +255,112 @@ restore_default_mouse_speed() {
     fi
 }
 
-touch_flag=()
-if command -v libinput >/dev/null 2>&1; then
-    echo "Checking touchscreen via libinput..." >&2
-    if sudo libinput list-devices 2>/dev/null | grep -qi "Touchscreen"; then
-        echo "Touchscreen detected; enabling -T for ydotoold." >&2
-        touch_flag=(-T)
+prepare_treeland_session() {
+    export YDOTOOL_SOCKET="${XDG_RUNTIME_DIR}/.ydotool_socket"
+
+    echo "Installing ydotool and its udev rule..." >&2
+    install_ydotool
+    install_ydotool_udev_rule || exit 1
+
+    case "${MOUSE_SPEED_ACTION}" in
+        flat)    configure_flat_mouse || exit 1 ;;
+        restore) restore_default_mouse_speed || exit 1 ;;
+    esac
+
+    local touch_flag=()
+    if command -v libinput >/dev/null 2>&1; then
+        echo "Checking touchscreen via libinput..." >&2
+        if sudo libinput list-devices 2>/dev/null | grep -qi "Touchscreen"; then
+            echo "Touchscreen detected; enabling -T for ydotoold." >&2
+            touch_flag=(-T)
+        else
+            echo "No touchscreen detected via libinput." >&2
+        fi
     else
-        echo "No touchscreen detected via libinput." >&2
+        echo "libinput not found; skipping touchscreen detection." >&2
     fi
-else
-    echo "libinput not found; skipping touchscreen detection." >&2
+
+    if ! pgrep -x ydotoold >/dev/null 2>&1; then
+        echo "Starting ydotoold (UID=${USER_UID}, GID=${USER_GID})..." >&2
+        sudo ydotoold "${touch_flag[@]}" -p "${XDG_RUNTIME_DIR}/.ydotool_socket" -o "${USER_UID}:${USER_GID}" >/dev/null 2>&1 &
+    else
+        echo "ydotoold already running; skipping start." >&2
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# X11 preparation
+# ---------------------------------------------------------------------------
+prepare_x11_session() {
+    # The EWMH observation adapter shells out to these; a screenshot backend is
+    # required by pyautogui. Fail fast rather than depend on preinstalled tools.
+    local missing=()
+    local tool
+    for tool in xwininfo xprop xrandr xdotool; do
+        command -v "${tool}" >/dev/null 2>&1 || missing+=("${tool}")
+    done
+    if ((${#missing[@]} > 0)); then
+        echo "Missing X11 observation tools: ${missing[*]}" >&2
+        exit 1
+    fi
+
+    local screenshot_backend=""
+    for tool in scrot import xwd; do
+        if command -v "${tool}" >/dev/null 2>&1; then
+            screenshot_backend="${tool}"
+            break
+        fi
+    done
+    if [[ -z "${screenshot_backend}" ]]; then
+        echo "No screenshot backend found; install one of: scrot, imagemagick, x11-apps." >&2
+        exit 1
+    fi
+    echo "X11 screenshot backend: ${screenshot_backend}" >&2
+
+    if [[ "${MOUSE_SPEED_ACTION}" != "unchanged" ]]; then
+        echo "Warning: --${MOUSE_SPEED_ACTION}-speed only applies to Treeland; ignoring on X11." >&2
+    fi
+}
+
+echo "[2/4] Install uv"
+
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+if ! command -v uv >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    command -v uv >/dev/null 2>&1 || {
+        echo "uv install failed. Ensure ~/.cargo/bin or ~/.local/bin is in PATH." >&2
+        exit 1
+    }
 fi
 
-case "${MOUSE_SPEED_ACTION}" in
-    flat)
-        configure_flat_mouse || exit 1
-        ;;
-    restore)
-        restore_default_mouse_speed || exit 1
-        ;;
+echo "[3/4] Install python dependencies via uv"
+uv sync
+
+if /usr/bin/python3 - <<'PY'
+import pyatspi
+print(pyatspi.__name__)
+PY
+then
+  echo "pyatspi import check: OK"
+else
+  cat <<'EOF'
+Warning: pyatspi is not available in the current environment.
+dogtail may require system-level AT-SPI packages from your distro.
+Example (Debian/Ubuntu):
+  sudo apt-get install -y python3-pyatspi python3-gi gir1.2-atspi-2.0
+EOF
+fi
+
+echo "[4/4] Prepare ${SESSION_TYPE} session"
+case "${SESSION_TYPE}" in
+    x11) prepare_x11_session ;;
+    *)   prepare_treeland_session ;;
 esac
 
-if ! pgrep -x ydotoold >/dev/null 2>&1; then
-    echo "Starting ydotoold (UID=${USER_UID}, GID=${USER_GID})..." >&2
-    sudo ydotoold "${touch_flag[@]}" -p "${XDG_RUNTIME_DIR}/.ydotool_socket" -o "${USER_UID}:${USER_GID}" >/dev/null 2>&1 &
-else
-    echo "ydotoold already running; skipping start." >&2
-fi
-
-# Start the v2 server only through its checked JSON configuration.  This is the
-# Treeland/Deepin default-backend environment script; it must not overwrite transport, model,
-# evidence, or audit settings with the legacy environment-variable interface.
+# Start the MCP server through its checked JSON configuration. The server
+# derives its backend from the session type, so no per-session config is
+# needed. Runtime behaviour stays in the JSON; only the config path and secrets
+# are read from the environment.
 MCP_CONFIG_PATH="${AUTOUI_MCP_CONFIG:-${PROJECT_ROOT}/config/mcp-autoui.json}"
 if [[ ! -f "${MCP_CONFIG_PATH}" ]]; then
     echo "MCP JSON config does not exist: ${MCP_CONFIG_PATH}" >&2
@@ -284,6 +379,7 @@ uv run treeland-autogui-mcp --config "${MCP_CONFIG_PATH}" || exit $?
 cat <<EOF
 
 Setup completed.
+Desktop session: ${SESSION_TYPE}
 Virtual environment: ${VENV_DIR}
 Temporary source path used: ${TMP_BASE}
 

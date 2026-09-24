@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${SSH_HOST:?Set SSH_HOST.}"
 : "${SSH_USER:?Set SSH_USER.}"
-PROJECT_URL="${DESKTOPHARNESS_REPO_URL:-https://github.com/zorowk/desktopharness.git}"
+PROJECT_URL="${DESKTOPHARNESS_REPO_URL:-https://github.com/mhduiy/desktopharness.git}"
 PROJECT_DIR="${DESKTOPHARNESS_DIR:-}"
 : "${CUA_MODEL_API_KEY:?Set CUA_MODEL_API_KEY in the controlling AI environment.}"
 
@@ -53,7 +53,6 @@ session=""
 session_type=""
 while read -r id _; do
   [[ -n "$id" ]] || continue
-  name="$(loginctl show-session "$id" -p Name --value 2>/dev/null || true)"
   type="$(loginctl show-session "$id" -p Type --value 2>/dev/null || true)"
   state="$(loginctl show-session "$id" -p State --value 2>/dev/null || true)"
   remote="$(loginctl show-session "$id" -p Remote --value 2>/dev/null || true)"
@@ -61,7 +60,7 @@ while read -r id _; do
   if [[ ( "$type" == wayland || "$type" == x11 ) && "$state" == active \
     && "$remote" == no && -n "$leader_value" ]]; then
     session="$id"
-    session_type="${values[1]}"
+    session_type="$type"
     break
   fi
 done < <(loginctl list-sessions --no-legend)
@@ -147,10 +146,14 @@ endpoint_port="$(
   sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$config" \
     | head -n 1
 )"
-backend="$(sed -n 's/.*"kind"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -n 1)"
-[[ -n "$endpoint_port" && -n "$backend" ]] || fail DEPENDENCY invalid-desktopharness-config
-if [[ "$backend" == treeland-* ]]; then
-  [[ "$session_type" == wayland ]] || fail DEPENDENCY treeland-backend-requires-wayland
+[[ -n "$endpoint_port" ]] || fail DEPENDENCY invalid-desktopharness-config
+# The backend follows the session type, mirroring server_config.detect_desktop_backend().
+case "$session_type" in
+  wayland) backend="treeland-deepin" ;;
+  x11)     backend="x11-deepin" ;;
+  *)       fail DESKTOP_SESSION unsupported-graphical-session ;;
+esac
+if [[ "$session_type" == wayland ]]; then
   run_as_desktop env "${session_env_args[@]}" timeout 10 treeland-debug --json tree >/dev/null \
     || fail DEPENDENCY treeland-backend-unavailable-in-desktop-session
 fi
